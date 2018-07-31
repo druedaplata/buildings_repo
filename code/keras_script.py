@@ -49,7 +49,9 @@ def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224
 
     if dataset == 'macro':
         path_to_image_dir = '../data/macro_dataset'
-    else:
+    if dataset == 'micro2':
+        path_to_image_dir = '../data/micro_dataset2'
+    if dataset == 'micro':
         path_to_image_dir = '../data/micro_dataset'
 
     generator_train = datagen.flow_from_directory(
@@ -172,10 +174,9 @@ if __name__ == '__main__':
     # Train for Macro dataset
     
     networks_list = ['vgg16','vgg19','xception','resnet50', 'inceptionV3']
-    for dataset in ['micro']:
-        for lr in [0.1, 0.01, 0.001, 0.0001, 0.00001]:
+    for dataset in ['micro', 'micro2']:
+        for lr in [0.001, 0.0001]:
             for network in networks_list:
-                for batch in [128, 64, 32, 16, 8]:
-                    train(network, dataset, epochs=200, batch_size=batch, lr_rate=lr)
+                train(network, dataset, epochs=200, batch_size=64, lr_rate=lr)
 
 
