@@ -1,0 +1,25 @@
+[[source]]
+url = "https://pypi.org/simple"
+name = "pypi"
+verify_ssl = true
+
+[packages]
+tensorflow-gpu = "*"
+keras = "*"
+jupyter = "*"
+pandas = "*"
+numpy = "*"
+tqdm = "*"
+pillow = "*"
+scikit-learn = "*"
+seaborn = "*"
+matplotlib = "*"
+
+[dev-packages]
+pylint = "<2.0.0"
+
+[requires]
+python_version = "3.6"
+
+[pipenv]
+allow_prereleases = true
