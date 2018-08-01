@@ -91,37 +91,37 @@ def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224
     else:
         return generator_train, generator_val
 
-def get_base_model_and_layer_number(model_name, img_width, img_height, main_input):
+def get_base_model_and_layer_number(model_name, img_width, img_height, main_input=None):
     # This method sucks, change it 
     if model_name == 'inceptionV3':
-        if main_input:
-            base_model = InceptionV3(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        else:
+        if main_input is None:
             base_model = InceptionV3(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
+        else:
+            base_model = InceptionV3(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
         last_layer_number = 249
     elif model_name == 'vgg16':
-        if main_input:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        else:
+        if main_input is None:
             base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
+        else:
+            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
         last_layer_number = len(base_model.layers)
     elif model_name == 'vgg19':
-        if main_input:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        else:
+        if main_input is None:
             base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
+        else:
+            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
         last_layer_number = len(base_model.layers)
     elif model_name == 'xception':
-        if main_input:
-            base_model = Xception(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        else:
+        if main_input is None:
             base_model = Xception(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
+        else:
+            base_model = Xception(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
         last_layer_number = len(base_model.layers)
     elif model_name == 'resnet50':
-        if main_input:
-            base_model = ResNet50(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        else:
+        if main_input is None:
             base_model = ResNet50(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
+        else:
+            base_model = ResNet50(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
         last_layer_number = len(base_model.layers)
 
     return base_model, last_layer_number
@@ -134,7 +134,7 @@ def get_callback_list(path):
         TensorBoard(log_dir=f'./logs/{path}')]
     return callback_list
 
-def train_with_csv(name='vgg16', dataset='micro', epochs='30', img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
+def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
     train_generator, val_generator, features = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
 
     # Create input for images
