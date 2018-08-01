@@ -134,7 +134,7 @@ def get_callback_list(path):
         TensorBoard(log_dir=f'./logs/{path}')]
     return callback_list
 
-def train_with_csv(name='vgg16', dataset='micro', epoch='30', img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
+def train_with_csv(name='vgg16', dataset='micro', epochs='30', img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
     train_generator, val_generator, features = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
 
     # Create input for images
