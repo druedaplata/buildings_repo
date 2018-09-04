@@ -71,8 +71,8 @@ def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224
         class_mode='categorical')
 
     if csv_data:
-        train = pd.read_csv(f'{path_to_image_dir}/train.csv', header=None)
-        val = pd.read_csv(f'{path_to_image_dir}/val.csv', header=None)
+        train = pd.read_csv(f'{path_to_image_dir}/train.csv', header=None, index_col='foto')
+        val = pd.read_csv(f'{path_to_image_dir}/val.csv', header=None, index_col='foto')
 
         def my_generator(image_gen, data):
             while True:
