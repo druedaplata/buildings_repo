@@ -87,7 +87,7 @@ def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224
         csv_val_gen = my_generator(generator_val, val)
         
         _, features = train.shape
-        return csv_train_gen, csv_val_gen, generator_train, generator_val
+        return csv_train_gen, csv_val_gen, generator_train, generator_val, features
     else:
         return generator_train, generator_val
 
@@ -135,7 +135,7 @@ def get_callback_list(path):
     return callback_list
 
 def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
-    csv_train_generator, csv_val_generator, train_generator, test_generator = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
+    csv_train_generator, csv_val_generator, train_generator, val_generator, features = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
 
     # Create input for images
     main_input = Input(shape=(img_width, img_height, 3))
