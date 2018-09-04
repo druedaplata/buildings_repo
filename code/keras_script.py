@@ -87,7 +87,7 @@ def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224
         csv_val_gen = my_generator(generator_val, val)
         
         _, features = train.shape
-        return csv_train_gen, csv_val_gen, features
+        return csv_train_gen, csv_val_gen, generator_train, generator_val
     else:
         return generator_train, generator_val
 
@@ -135,7 +135,7 @@ def get_callback_list(path):
     return callback_list
 
 def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
-    train_generator, val_generator, features = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
+    csv_train_generator, csv_val_generator, train_generator, test_generator = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
 
     # Create input for images
     main_input = Input(shape=(img_width, img_height, 3))
@@ -177,10 +177,10 @@ def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_
     """
     callback_list = get_callback_list(top_weights_path)
     
-    model.fit_generator(train_generator,
+    model.fit_generator(csv_train_generator,
                         steps_per_epoch= train_generator.n // batch_size,
                         epochs=epochs//2,
-                        validation_data=val_generator,
+                        validation_data=csv_val_generator,
                         validation_steps=val_generator.n // batch_size,
                         class_weight=class_weights,
                         callbacks=callback_list)
@@ -204,10 +204,10 @@ def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_
     final_weights_path = f'models/final_multi_{name}_{dataset}_lr{lr_rate}_{batch_size}bs'
 
     model.fit_generator(
-        train_generator,
+        csv_train_generator,
         steps_per_epoch=train_generator.n // batch_size,
         epochs=epochs//2,
-        validation_data=val_generator,
+        validation_data=csv_val_generator,
         validation_steps=val_generator.n // batch_size,
         class_weight=class_weights,
         callbacks=callback_list
@@ -291,9 +291,9 @@ if __name__ == '__main__':
     # Train for Macro dataset
     
     networks_list = ['vgg16','vgg19','xception','resnet50', 'inceptionV3']
-    for dataset in ['micro', 'micro2']:
-        for lr in [0.001, 0.0001]:
+    for dataset in ['micro']:
+        for lr in [0.0001]:
             for network in networks_list:
-                train(network, dataset, epochs=200, batch_size=64, lr_rate=lr)
+                train_with_csv(network, dataset, epochs=200, batch_size=64, lr_rate=lr)
 
 
