@@ -157,7 +157,9 @@ def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_
     # Load Simple MLP
     aux_input = Input(shape=(features,))
     aux = Dense(4096, activation='relu')(aux_input)
+    aux = Dropout(0.5)(aux)
     aux = Dense(4096, activation='relu')(aux)
+    aux = Dropout(0.5)(aux)
     aux = Dense(1024, activation='relu')(aux)
 
     # Merge input models
