@@ -1,160 +1,208 @@
 import numpy as np
 import pandas as pd
+import configparser
 from keras import backend as K
 from keras.models import Model
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
 from keras.preprocessing.image import ImageDataGenerator
-from keras.layers.core import Dense
+from keras.layers.core import Dense, Dropout
 from keras.optimizers import Adam
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
 from sklearn.utils import class_weight
 
 
-def weighted_categorical_crossentropy(weights):
-    """
-    A weighted version of keras.objectives.categorical_crossentropy
+def get_image_generators(images_dir, *args):
+    """"""
+    img_width, img_height, batch_size = args
+    datagen = ImageDataGenerator()
 
-    Variables:
-        weights: numpy array of shape (C,) where C is the number of classes
-
-    Usage:
-        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
-        loss = weighted_categorical_crossentropy(weights)
-        model.compile(loss=loss,optimizer='adam')
-    """
-
-    weights = K.variable(weights)
-
-    def loss(y_true, y_pred):
-        # scale predictions so that the class probas of each sample sum to 1
-        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-        # clip to prevent NaN's and Inf's
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-        # calc
-        loss = y_true * K.log(y_pred) * weights
-        loss = -K.sum(loss, -1)
-        return loss
-
-    return loss
-
-def get_generators(dataset='macro', batch_size=32, img_width=224, img_height=224, csv_data=False):
-    datagen = ImageDataGenerator(
-        horizontal_flip=True,
-        width_shift_range=0.3,
-        height_shift_range=0.1,
-        rotation_range=5,
-        zoom_range=0.3,
-        rescale=1./255)
-
-    if dataset == 'macro':
-        path_to_image_dir = '../data/macro_dataset'
-    if dataset == 'micro2':
-        path_to_image_dir = '../data/micro_dataset2'
-    if dataset == 'micro':
-        path_to_image_dir = '../data/micro_dataset'
-
-    generator_train = datagen.flow_from_directory(
-        f'{path_to_image_dir}/train',
+    gen_train = datagen.flow_from_directory(
+        f'{images_dir}/train',
         target_size=(img_width, img_height),
         batch_size=batch_size,
         shuffle=True,
-        class_mode='categorical')
-    
-    generator_val = datagen.flow_from_directory(
-        f'{path_to_image_dir}/val',
+        class_mode='categorical'
+    )
+
+    gen_val = datagen.flow_from_directory(
+        f'{images_dir}/val',
         target_size=(img_width, img_height),
         batch_size=batch_size,
         shuffle=True,
-        class_mode='categorical')
+        class_mode='categorical'
+    )
 
-    if csv_data:
-        train = pd.read_csv(f'{path_to_image_dir}/train.csv', header=None, index_col='foto')
-        val = pd.read_csv(f'{path_to_image_dir}/val.csv', header=None, index_col='foto')
+    return gen_train, gen_val
 
-        def my_generator(image_gen, data):
-            while True:
-                i = image_gen.batch_index
-                batch = image_gen.batch_size
-                row = data[i*batch:(i+1)*batch]
-                images, labels = image_gen.next()
 
-                yield [images, row], labels
-    
-        csv_train_gen = my_generator(generator_train, train)
-        csv_val_gen = my_generator(generator_val, val)
-        
-        _, features = train.shape
-        return csv_train_gen, csv_val_gen, generator_train, generator_val, features
+def get_combined_generators(images_dir, csv_dir, csv_index, *args):
+    """"""
+    img_width, img_height, batch_size = args
+    datagen = ImageDataGenerator()
+
+    gen_train = datagen.flow_from_directory(
+        f'{images_dir}/train',
+        target_size=(img_width, img_height),
+        batch_size=batch_size,
+        shuffle=True,
+        class_mode='categorical'
+    )
+
+    gen_val = datagen.flow_from_directory(
+        f'{images_dir}/val',
+        target_size=(img_width, img_height),
+        batch_size=batch_size,
+        shuffle=True,
+        class_mode='categorical'
+    )
+
+    # TODO: Change index to something more default
+    train_df = pd.read_csv(f'{csv_dir}/train.csv',
+                           header=None, index_col=csv_index)
+    val_df = pd.read_csv(f'{csv_dir}/val.csv',
+                         header=None, index_col=csv_index)
+
+    def my_generator(image_gen, data):
+        while True:
+            i = image_gen.batch_index
+            batch = image_gen.batch_size
+            row = data[i*batch:(i+1)*batch]
+            images, labels = image_gen.next()
+            yield [images, row], labels
+
+    csv_train_gen = my_generator(gen_train, train_df)
+    csv_val_gen = my_generator(gen_val, val_df)
+
+    _, features = train_df.shape
+    return csv_train_gen, csv_val_gen, gen_train, gen_val, features
+
+
+def get_cnn_model(network, input_shape):
+    models = {
+        'inceptionV3': InceptionV3(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
+        'vgg16': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
+        'vgg19': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
+        'xception': Xception(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
+        'resnet50': ResNet50(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape))}
+
+    base_model = models[network]
+    if network == 'inceptionV3':
+        return base_model, 249
     else:
-        return generator_train, generator_val
+        return base_model, len(base_model.layers)
 
-def get_base_model_and_layer_number(model_name, img_width, img_height, main_input=None):
-    # This method sucks, change it 
-    if model_name == 'inceptionV3':
-        if main_input is None:
-            base_model = InceptionV3(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
-        else:
-            base_model = InceptionV3(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        last_layer_number = 249
-    elif model_name == 'vgg16':
-        if main_input is None:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
-        else:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        last_layer_number = len(base_model.layers)
-    elif model_name == 'vgg19':
-        if main_input is None:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
-        else:
-            base_model = VGG16(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        last_layer_number = len(base_model.layers)
-    elif model_name == 'xception':
-        if main_input is None:
-            base_model = Xception(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
-        else:
-            base_model = Xception(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        last_layer_number = len(base_model.layers)
-    elif model_name == 'resnet50':
-        if main_input is None:
-            base_model = ResNet50(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False)
-        else:
-            base_model = ResNet50(input_shape=(img_width, img_height, 3), weights='imagenet', include_top=False, input_tensor=main_input)
-        last_layer_number = len(base_model.layers)
 
-    return base_model, last_layer_number
-    
-def get_callback_list(path):
+def get_callback_list(network, path, models_dir, logs_dir):
     callback_list = [
-        ModelCheckpoint(f'models/{path}.h5', monitor='val_loss', verbose=1, save_best_only=True),
+        ModelCheckpoint(f'{models_dir}/{network}/{path}.h5',
+                        monitor='val_loss', verbose=1, save_best_only=True),
         EarlyStopping(monitor='val_loss', patience=30, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', patience=30, verbose=1),
-        TensorBoard(log_dir=f'./logs/{path}')]
+        TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')]
     return callback_list
 
-def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
-    csv_train_generator, csv_val_generator, train_generator, val_generator, features = get_generators(dataset, batch_size, img_width, img_height, csv_data=True)
 
-    # Create input for images
-    main_input = Input(shape=(img_width, img_height, 3))
-    base_model, last_layer_number = get_base_model_and_layer_number(name, img_width, img_height, main_input)
-    assert len(set(train_generator.classes)) == len(set(val_generator.classes))
-    num_classes = len(set(train_generator.classes))
+def train_on_images(network, images_dir, *args):
+
+    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir = args
+
+    train_gen, val_gen = get_image_generators(images_dir)
+    input_shape = (img_width, img_height, 3)
+    base_model, last_layer_number = get_cnn_model(network, input_shape)
+
+    num_classes = len(np.unique(train_gen.classes))
+    assert num_classes == len(np.unique(val_gen.classes))
 
     class_weights = class_weight.compute_class_weight(
-                    'balanced',
-                    np.unique(train_generator.classes),
-                    train_generator.classes
+        'balanced',
+        np.unique(train_gen.classes),
+        train_gen.classes
+    )
+
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(1024, activation='relu')(x)
+    predictions = Dense(num_classes, activation='softmax')(x)
+
+    model = Model(base_model.input, predictions)
+    top_weights_path = f'{network}_lr{lr_rate}_{batch_size}bs'
+
+    opt = Adam(lr=lr_rate)
+    model.compile(optimizer=opt, loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    """
+    Directives for training
+    """
+    callback_list = get_callback_list(
+        network, top_weights_path, models_dir, logs_dir)
+
+    model.fit_generator(
+        train_gen,
+        steps_per_epoch=train_gen.n // batch_size,
+        epochs=epochs//2,
+        validation_data=val_gen,
+        validation_steps=val_gen.n // batch_size,
+        class_weight=class_weights,
+        callbacks=callback_list)
+
+    model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
+
+    """
+    After training for a few epochs, freeze the bottom layers, and train only on top.
+    """
+
+    for layer in model.layers[:last_layer_number]:
+        layer.trainable = False
+    for layer in model.layers[last_layer_number:]:
+        layer.trainable = True
+
+    opt = Adam(lr=lr_rate)
+    model.compile(optimizer=opt,
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    model.fit_generator(
+        train_gen,
+        steps_per_epoch=train_gen.n // batch_size,
+        epochs=epochs//2,
+        validation_data=val_gen,
+        validation_steps=val_gen.n // batch_size,
+        class_weight=class_weights,
+        callbacks=callback_list
+    )
+
+    final_weights_path = f'{models_dir}/{network}/final_{network}_lr{lr_rate}_{batch_size}bs'
+    model.save(final_weights_path)
+
+
+def train_combined(network, images_dir, csv_dir, *args):
+
+    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir = args
+
+    multi_train_gen, multi_val_gen, train_gen, val_gen, features = get_combined_generators(
+        images_dir, csv_dir)
+    input_shape = (img_width, img_height, 3)
+    main_input = Input(shape=input_shape)
+    base_model, last_layer_number = get_cnn_model(network, input_shape)
+
+    num_classes = len(np.unique(train_gen.classes))
+    assert num_classes == len(np.unique(val_gen.classes))
+
+    class_weights = class_weight.compute_class_weight(
+        'balanced',
+        np.unique(train_gen.classes),
+        train_gen.classes
     )
 
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     x = Dense(1024, activation='relu')(x)
 
-
-    # Load Simple MLP
+    # Create simple NN
     aux_input = Input(shape=(features,))
     aux = Dense(4096, activation='relu')(aux_input)
     aux = Dropout(0.5)(aux)
@@ -167,27 +215,27 @@ def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
-    top_weights_path = f'multi_{name}_{dataset}_lr{lr_rate}_{batch_size}bs'
+    top_weights_path = f'multi_{network}_lr{lr_rate}_{batch_size}bs'
 
     opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
+    model.compile(optimizer=opt, loss='categorical_crossentropy',
                   metrics=['accuracy'])
-            
+
     """
     Directives for training
     """
-    callback_list = get_callback_list(top_weights_path)
-    
-    model.fit_generator(csv_train_generator,
-                        steps_per_epoch= train_generator.n // batch_size,
-                        epochs=epochs//2,
-                        validation_data=csv_val_generator,
-                        validation_steps=val_generator.n // batch_size,
-                        class_weight=class_weights,
-                        callbacks=callback_list)
+    callback_list = get_callback_list(network, top_weights_path)
 
-    model.load_weights(f'models/{top_weights_path}.h5')
+    model.fit_generator(
+        multi_train_gen,
+        steps_per_epoch=train_gen.n // batch_size,
+        epochs=epochs//2,
+        validation_data=multi_val_gen,
+        validation_steps=val_gen.n // batch_size,
+        class_weight=class_weights,
+        callbacks=callback_list)
+
+    model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
 
     """
     After training for a few epochs, freeze the bottom layers, and train only on top.
@@ -203,99 +251,45 @@ def train_with_csv(name='vgg16', dataset='micro', epochs=30, img_width=227, img_
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
-    final_weights_path = f'models/final_multi_{name}_{dataset}_lr{lr_rate}_{batch_size}bs'
-
     model.fit_generator(
-        csv_train_generator,
-        steps_per_epoch=train_generator.n // batch_size,
+        multi_train_gen,
+        steps_per_epoch=train_gen.n // batch_size,
         epochs=epochs//2,
-        validation_data=csv_val_generator,
-        validation_steps=val_generator.n // batch_size,
+        validation_data=multi_val_gen,
+        validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
         callbacks=callback_list
     )
 
-    model.save(final_weights_path)
-
-def train(name='vgg16', dataset='micro', epochs=30, img_width=227, img_height=227, batch_size=2, lr_rate=0.001):
-    train_generator, val_generator = get_generators(dataset, batch_size, img_width, img_height)
-    base_model, last_layer_number = get_base_model_and_layer_number(name, img_width, img_height)
-    assert len(set(train_generator.classes)) == len(set(val_generator.classes))
-    num_classes = len(set(train_generator.classes))
-
-    class_weights = class_weight.compute_class_weight(
-                    'balanced',
-                    np.unique(train_generator.classes),
-                    train_generator.classes
-    )
-
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
-    predictions = Dense(num_classes, activation='softmax')(x)
-
-    for layer in base_model.layers:
-        layer.trainable = False
-    
-    model = Model(base_model.input, predictions)
-    top_weights_path = f'{name}_{dataset}_lr{lr_rate}_{batch_size}bs'
-
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'])
-
-    """
-    Directives for training
-    """
-    callback_list = get_callback_list(top_weights_path)
-    
-    model.fit_generator(train_generator,
-                        steps_per_epoch= train_generator.n // batch_size,
-                        epochs=epochs//2,
-                        validation_data=val_generator,
-                        validation_steps=val_generator.n // batch_size,
-                        class_weight=class_weights,
-                        callbacks=callback_list)
-
-    model.load_weights(f'models/{top_weights_path}.h5')
-
-    """
-    After training for a few epochs, freeze the bottom layers, and train only on top.
-    """
-
-    for layer in model.layers[:last_layer_number]:
-        layer.trainable = False
-    for layer in model.layers[last_layer_number:]:
-        layer.trainable = True
-
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'])
-
-    final_weights_path = f'models/final_{name}_{dataset}_lr{lr_rate}_{batch_size}bs'
-
-    model.fit_generator(
-        train_generator,
-        steps_per_epoch=train_generator.n // batch_size,
-        epochs=epochs//2,
-        validation_data=val_generator,
-        validation_steps=val_generator.n // batch_size,
-        class_weight=class_weights,
-        callbacks=callback_list
-    )
-
+    final_weights_path = f'{models_dir}/{network}/final_multi_{network}_lr{lr_rate}_{batch_size}bs'
     model.save(final_weights_path)
 
 
 if __name__ == '__main__':
-    # Train for Macro dataset
-    
-    networks_list = ['vgg16','vgg19','xception','resnet50', 'inceptionV3']
-    for dataset in ['micro']:
-        for lr in [0.0001]:
-            for network in networks_list:
-                train_with_csv(network, dataset, epochs=200, batch_size=64, lr_rate=lr)
 
+    config = configparser.ConfigParser()
+    config.read('config.ini')
 
+    # Read image parameters
+    images_dir = config.get('IMAGES', 'images_dir')
+    img_width = config.getint('IMAGES', 'width')
+    img_height = config.getint('IMAGES', 'height')
+    # Read csv parameters
+    csv_dir = config.get('CSV', 'csv_dir')
+    csv_index = config.get('CSV', 'csv_index')
+    # Read training parameters
+    lr_rate = config.getfloat('TRAINING', 'lr_rate')
+    batch_size = config.getint('TRAINING', 'batch_size')
+    epochs = config.getint('TRAINING', 'epochs')
+    networks_list = config.get('TRAINING', 'cnn_network_list')
+    # Read data paths
+    models_dir = config.get('OUTPUT', 'models_dir')
+    logs_dir = config.get('OUTPUT', 'logs_dir')
+
+    for network in networks_list:
+
+        args = [img_width, img_height, batch_size,
+                lr_rate, epochs, models_dir, logs_dir]
+
+        train_on_images(network, images_dir, args)
+        train_combined(network, images_dir, csv_dir, csv_index, args)
