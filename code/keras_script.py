@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
 import configparser
+import tensorflow as tf
 from keras import backend as K
 from keras.models import Model
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
+from keras.utils.training_utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
 from keras.optimizers import Adam
@@ -60,10 +62,9 @@ def get_combined_generators(images_dir, csv_dir, csv_index, *args):
     )
 
     # TODO: Change index to something more default
-    train_df = pd.read_csv(f'{csv_dir}/train.csv',
-                           header=None, index_col=csv_index)
-    val_df = pd.read_csv(f'{csv_dir}/val.csv',
-                         header=None, index_col=csv_index)
+
+    train_df = pd.read_csv(f'{csv_dir}/train.csv', index_col=f'{csv_index}')
+    val_df = pd.read_csv(f'{csv_dir}/val.csv', index_col=f'{csv_index}')
 
     def my_generator(image_gen, data):
         while True:
@@ -80,13 +81,13 @@ def get_combined_generators(images_dir, csv_dir, csv_index, *args):
     return csv_train_gen, csv_val_gen, gen_train, gen_val, features
 
 
-def get_cnn_model(network, input_shape):
+def get_cnn_model(network, input_shape, main_input):
     models = {
-        'inceptionV3': InceptionV3(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
-        'vgg16': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
-        'vgg19': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
-        'xception': Xception(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape)),
-        'resnet50': ResNet50(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=Input(shape=input_shape))}
+        'inceptionV3': InceptionV3(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
+        'vgg16': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
+        'vgg19': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
+        'xception': Xception(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
+        'resnet50': ResNet50(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input)}
 
     base_model = models[network]
     if network == 'inceptionV3':
@@ -107,11 +108,14 @@ def get_callback_list(network, path, models_dir, logs_dir):
 
 def train_on_images(network, images_dir, *args):
 
-    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir = args
+    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
-    train_gen, val_gen = get_image_generators(images_dir)
+    train_gen, val_gen = get_image_generators(
+        images_dir, img_width, img_height, batch_size)
     input_shape = (img_width, img_height, 3)
-    base_model, last_layer_number = get_cnn_model(network, input_shape)
+    main_input = Input(shape=input_shape)
+    base_model, last_layer_number = get_cnn_model(
+        network, input_shape, main_input)
 
     num_classes = len(np.unique(train_gen.classes))
     assert num_classes == len(np.unique(val_gen.classes))
@@ -127,8 +131,13 @@ def train_on_images(network, images_dir, *args):
     x = Dense(1024, activation='relu')(x)
     predictions = Dense(num_classes, activation='softmax')(x)
 
-    model = Model(base_model.input, predictions)
+    with tf.device("/cpu:0"):
+        model = Model(base_model.input, predictions)
+
     top_weights_path = f'{network}_lr{lr_rate}_{batch_size}bs'
+
+    if gpu_number > 1:
+        model = multi_gpu_model(model, gpus=gpu_number)
 
     opt = Adam(lr=lr_rate)
     model.compile(optimizer=opt, loss='categorical_crossentropy',
@@ -179,15 +188,17 @@ def train_on_images(network, images_dir, *args):
     model.save(final_weights_path)
 
 
-def train_combined(network, images_dir, csv_dir, *args):
+def train_combined(network, images_dir, csv_dir, csv_index, *args):
 
-    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir = args
+    img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
     multi_train_gen, multi_val_gen, train_gen, val_gen, features = get_combined_generators(
-        images_dir, csv_dir)
+        images_dir, csv_dir, csv_index, img_width, img_height, batch_size)
+
     input_shape = (img_width, img_height, 3)
     main_input = Input(shape=input_shape)
-    base_model, last_layer_number = get_cnn_model(network, input_shape)
+    base_model, last_layer_number = get_cnn_model(
+        network, input_shape, main_input)
 
     num_classes = len(np.unique(train_gen.classes))
     assert num_classes == len(np.unique(val_gen.classes))
@@ -215,6 +226,10 @@ def train_combined(network, images_dir, csv_dir, *args):
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
+
+    if gpu_number > 1:
+        model = multi_gpu_model(model, gpus=gpu_number)
+
     top_weights_path = f'multi_{network}_lr{lr_rate}_{batch_size}bs'
 
     opt = Adam(lr=lr_rate)
@@ -224,7 +239,8 @@ def train_combined(network, images_dir, csv_dir, *args):
     """
     Directives for training
     """
-    callback_list = get_callback_list(network, top_weights_path)
+    callback_list = get_callback_list(
+        network, top_weights_path, models_dir, logs_dir)
 
     model.fit_generator(
         multi_train_gen,
@@ -281,15 +297,21 @@ if __name__ == '__main__':
     lr_rate = config.getfloat('TRAINING', 'lr_rate')
     batch_size = config.getint('TRAINING', 'batch_size')
     epochs = config.getint('TRAINING', 'epochs')
-    networks_list = config.get('TRAINING', 'cnn_network_list')
+    networks_list = config.get('TRAINING', 'cnn_network_list').split(',')
+    gpu_number = config.getint('TRAINING', 'gpu_number')
+
+    batch_size = batch_size * gpu_number
+
     # Read data paths
     models_dir = config.get('OUTPUT', 'models_dir')
     logs_dir = config.get('OUTPUT', 'logs_dir')
 
+    print(networks_list)
+
     for network in networks_list:
 
         args = [img_width, img_height, batch_size,
-                lr_rate, epochs, models_dir, logs_dir]
+                lr_rate, epochs, models_dir, logs_dir, gpu_number]
 
-        train_on_images(network, images_dir, args)
-        train_combined(network, images_dir, csv_dir, csv_index, args)
+        #train_on_images(network, images_dir, *args)
+        train_combined(network, images_dir, csv_dir, csv_index, *args)
