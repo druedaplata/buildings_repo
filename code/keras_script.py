@@ -1,3 +1,5 @@
+import os
+import pathlib
 import numpy as np
 import pandas as pd
 import configparser
@@ -16,8 +18,22 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceL
 from sklearn.utils import class_weight
 
 
+def setup_dirs(models_dir, logs_dir, networks_list):
+    for net in networks_list:
+        os.makedirs(f'{models_dir}/{net}', exist_ok=True)
+
+    os.makedirs(f'{logs_dir}', exist_ok=True)
+
+
 def get_image_generators(images_dir, *args):
-    """"""
+    """
+    Creates train/val generators on images only 
+    from a directory.
+
+    Arguments:
+    images_dir : string
+        Path to a directory with subdirectories for each class. 
+    """
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator()
 
@@ -40,8 +56,22 @@ def get_image_generators(images_dir, *args):
     return gen_train, gen_val
 
 
-def get_combined_generators(images_dir, csv_dir, csv_index, *args):
-    """"""
+def get_combined_generators(images_dir, csv_dir, csv_data, *args):
+    """
+    Creates train/val generators on images and csv data.
+
+    Arguments:
+
+    images_dir : string
+        Path to a directory with subdirectories for each class.
+
+    csv_dir : string
+        Path to a directory containing train/val csv files.
+
+    csv_data : list
+        List of columns to use when training.
+        First value is the index.
+    """
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator()
 
@@ -62,9 +92,10 @@ def get_combined_generators(images_dir, csv_dir, csv_index, *args):
     )
 
     # TODO: Change index to something more default
-
-    train_df = pd.read_csv(f'{csv_dir}/train.csv', index_col=f'{csv_index}')
-    val_df = pd.read_csv(f'{csv_dir}/val.csv', index_col=f'{csv_index}')
+    train_df = pd.read_csv(f'{csv_dir}/train.csv',
+                           usecols=csv_data, index_col=csv_data[0])
+    val_df = pd.read_csv(f'{csv_dir}/val.csv',
+                         usecols=csv_data, index_col=csv_data[0])
 
     def my_generator(image_gen, data):
         while True:
@@ -82,6 +113,22 @@ def get_combined_generators(images_dir, csv_dir, csv_index, *args):
 
 
 def get_cnn_model(network, input_shape, main_input):
+    """
+    Returns a convolutional neural network model with imagenet weights.
+
+    Arguments:
+
+    network : string
+              Name of a predefined network must be implemented.
+
+    input_shape : tuple
+                  Three values with image width, height, and channels
+                  (img_width, img_height, channels)
+
+    main_input : Input
+                 Input object using the input shape defined, redundancy for a bug in keras.
+
+    """
     models = {
         'inceptionV3': InceptionV3(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
         'vgg16': VGG16(input_shape=input_shape, weights='imagenet', include_top=False, input_tensor=main_input),
@@ -97,6 +144,19 @@ def get_cnn_model(network, input_shape, main_input):
 
 
 def get_callback_list(network, path, models_dir, logs_dir):
+    """
+    Returns a list of parameters for training in keras.
+
+    Arguments
+        network : string
+            Name of an implemented network
+        path : string
+            Filename to store the logs and models while training
+        models_dir : string
+            Path to folder where models are saved.
+        logs_dir : string
+            Path to folder where logs are saved.
+    """
     callback_list = [
         ModelCheckpoint(f'{models_dir}/{network}/{path}.h5',
                         monitor='val_loss', verbose=1, save_best_only=True),
@@ -107,48 +167,65 @@ def get_callback_list(network, path, models_dir, logs_dir):
 
 
 def train_on_images(network, images_dir, *args):
+    """
+    Trains a convolutional neural network on images from images_dir.
 
+    Arguments:
+        network : string
+            Name of an implemented CNN on current keras version.
+        images_dir : string
+            Path to a directory with subdirs for each image class.
+    """
+    # Extract parameters from args
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
+    # Get image generators
     train_gen, val_gen = get_image_generators(
         images_dir, img_width, img_height, batch_size)
+
+    # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
     main_input = Input(shape=input_shape)
     base_model, last_layer_number = get_cnn_model(
         network, input_shape, main_input)
 
+    # Make sure train/val have the same number of classes
     num_classes = len(np.unique(train_gen.classes))
     assert num_classes == len(np.unique(val_gen.classes))
 
+    # Create class weights, useful for imbalanced datasets
     class_weights = class_weight.compute_class_weight(
         'balanced',
         np.unique(train_gen.classes),
         train_gen.classes
     )
 
+    # Get network model and change last layers for training
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     x = Dense(1024, activation='relu')(x)
     predictions = Dense(num_classes, activation='softmax')(x)
 
-    with tf.device("/cpu:0"):
-        model = Model(base_model.input, predictions)
+    # Create model object in keras
+    model = Model(base_model.input, predictions)
 
-    top_weights_path = f'{network}_lr{lr_rate}_{batch_size}bs'
+    # Create path to save training models and logs
+    top_weights_path = f'A_{network}_lr{lr_rate}_{batch_size}bs'
 
+    # Use a multi-gpu model if available and configured
     if gpu_number > 1:
         model = multi_gpu_model(model, gpus=gpu_number)
 
+    # Compile model and set learning rate
     opt = Adam(lr=lr_rate)
     model.compile(optimizer=opt, loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
-    """
-    Directives for training
-    """
+    # Get list of training parameters in keras
     callback_list = get_callback_list(
         network, top_weights_path, models_dir, logs_dir)
 
+    # Train the model on train split, for half the epochs
     model.fit_generator(
         train_gen,
         steps_per_epoch=train_gen.n // batch_size,
@@ -158,22 +235,22 @@ def train_on_images(network, images_dir, *args):
         class_weight=class_weights,
         callbacks=callback_list)
 
+    # Load the best model from previous training phase
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
 
-    """
-    After training for a few epochs, freeze the bottom layers, and train only on top.
-    """
-
+    # After training for a few epochs, freeze the bottom layers, and train only the last ones.
     for layer in model.layers[:last_layer_number]:
         layer.trainable = False
     for layer in model.layers[last_layer_number:]:
         layer.trainable = True
 
+    # Compile model with frozen layers, and set learning rate
     opt = Adam(lr=lr_rate)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
+    # Train the model on train split, for the second half epochs
     model.fit_generator(
         train_gen,
         steps_per_epoch=train_gen.n // batch_size,
@@ -181,39 +258,56 @@ def train_on_images(network, images_dir, *args):
         validation_data=val_gen,
         validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
-        callbacks=callback_list
-    )
+        callbacks=callback_list)
 
-    final_weights_path = f'{models_dir}/{network}/final_{network}_lr{lr_rate}_{batch_size}bs'
+    # Create path to save the model
+    final_weights_path = f'{models_dir}/{network}/A_last_{network}_lr{lr_rate}_{batch_size}bs'
     model.save(final_weights_path)
 
 
-def train_combined(network, images_dir, csv_dir, csv_index, *args):
+def train_combined(network, images_dir, csv_dir, csv_data, *args):
+    """
+    Trains a network combining a convolutional network and a multilayer perceptron
+    on images and csv data.
 
+    Arguments:
+        network : string
+            Name of an implemented CNN on current keras version.
+        images_dir : string
+            Path to a directory with subdirs for each image class.
+        csv_dir : string
+            Path to a directory that containts train/val csv files.
+    """
+    # Extract parameters from args
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
+    # Get combined and image generators, and number of features in csv files.
     multi_train_gen, multi_val_gen, train_gen, val_gen, features = get_combined_generators(
-        images_dir, csv_dir, csv_index, img_width, img_height, batch_size)
+        images_dir, csv_dir, csv_data, img_width, img_height, batch_size)
 
+    # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
     main_input = Input(shape=input_shape)
     base_model, last_layer_number = get_cnn_model(
         network, input_shape, main_input)
 
+    # Make sure train/val have the same number of classes
     num_classes = len(np.unique(train_gen.classes))
     assert num_classes == len(np.unique(val_gen.classes))
 
+    # Create class weights, useful for imbalanced datasets
     class_weights = class_weight.compute_class_weight(
         'balanced',
         np.unique(train_gen.classes),
         train_gen.classes
     )
 
+    # Get network model and change last layers for training
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     x = Dense(1024, activation='relu')(x)
 
-    # Create simple NN
+    # Create MLP using features from csv files
     aux_input = Input(shape=(features,))
     aux = Dense(4096, activation='relu')(aux_input)
     aux = Dropout(0.5)(aux)
@@ -221,27 +315,31 @@ def train_combined(network, images_dir, csv_dir, csv_index, *args):
     aux = Dropout(0.5)(aux)
     aux = Dense(1024, activation='relu')(aux)
 
-    # Merge input models
+    # Merge both networks
+    # TODO: Test with different number of layers after merge.
     merge = concatenate([x, aux])
     predictions = Dense(num_classes, activation='softmax')(merge)
 
+    # Create model object in keras for both types of inputs
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
 
+    # Use a multi-gpu model if available and configured
     if gpu_number > 1:
         model = multi_gpu_model(model, gpus=gpu_number)
 
-    top_weights_path = f'multi_{network}_lr{lr_rate}_{batch_size}bs'
+    # Create path to save training models and logs
+    top_weights_path = f'B_{network}_lr{lr_rate}_{batch_size}bs'
 
+    # Compile model and set learning rate
     opt = Adam(lr=lr_rate)
     model.compile(optimizer=opt, loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
-    """
-    Directives for training
-    """
+    # Get list of training parameters in keras
     callback_list = get_callback_list(
         network, top_weights_path, models_dir, logs_dir)
 
+    # Train the model on train split, for half the epochs
     model.fit_generator(
         multi_train_gen,
         steps_per_epoch=train_gen.n // batch_size,
@@ -251,22 +349,22 @@ def train_combined(network, images_dir, csv_dir, csv_index, *args):
         class_weight=class_weights,
         callbacks=callback_list)
 
+    # Load the best model from previous training phase
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
 
-    """
-    After training for a few epochs, freeze the bottom layers, and train only on top.
-    """
-
+    # After training for a few epochs, freeze the bottom layers, and train only the last ones.
     for layer in model.layers[:last_layer_number]:
         layer.trainable = False
     for layer in model.layers[last_layer_number:]:
         layer.trainable = True
 
+    # Compile model with frozen layers, and set learning rate
     opt = Adam(lr=lr_rate)
     model.compile(optimizer=opt,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
+    # Train the model on train split, for the second half epochs
     model.fit_generator(
         multi_train_gen,
         steps_per_epoch=train_gen.n // batch_size,
@@ -277,7 +375,8 @@ def train_combined(network, images_dir, csv_dir, csv_index, *args):
         callbacks=callback_list
     )
 
-    final_weights_path = f'{models_dir}/{network}/final_multi_{network}_lr{lr_rate}_{batch_size}bs'
+    # Create path to save the model
+    final_weights_path = f'{models_dir}/{network}/B_last_{network}_lr{lr_rate}_{batch_size}bs'
     model.save(final_weights_path)
 
 
@@ -292,7 +391,7 @@ if __name__ == '__main__':
     img_height = config.getint('IMAGES', 'height')
     # Read csv parameters
     csv_dir = config.get('CSV', 'csv_dir')
-    csv_index = config.get('CSV', 'csv_index')
+    csv_data = config.get('CSV', 'csv_data').split(',')
     # Read training parameters
     lr_rate = config.getfloat('TRAINING', 'lr_rate')
     batch_size = config.getint('TRAINING', 'batch_size')
@@ -306,7 +405,7 @@ if __name__ == '__main__':
     models_dir = config.get('OUTPUT', 'models_dir')
     logs_dir = config.get('OUTPUT', 'logs_dir')
 
-    print(networks_list)
+    setup_dirs(models_dir, logs_dir, networks_list)
 
     for network in networks_list:
 
@@ -314,4 +413,4 @@ if __name__ == '__main__':
                 lr_rate, epochs, models_dir, logs_dir, gpu_number]
 
         #train_on_images(network, images_dir, *args)
-        train_combined(network, images_dir, csv_dir, csv_index, *args)
+        train_combined(network, images_dir, csv_dir, csv_data, *args)
