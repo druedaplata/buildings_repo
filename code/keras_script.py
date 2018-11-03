@@ -25,38 +25,22 @@ def setup_dirs(models_dir, logs_dir, networks_list):
     os.makedirs(f'{logs_dir}', exist_ok=True)
 
 
-def get_image_generators(images_dir, *args):
-    """
-    Creates train/val generators on images only 
-    from a directory.
-
-    Arguments:
-    images_dir : string
-        Path to a directory with subdirectories for each class. 
-    """
+def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator()
+    datagen = ImageDataGenerator(horizontal_flip=True, rotation_range=10)
 
-    gen_train = datagen.flow_from_directory(
-        f'{images_dir}/train',
+    generator = datagen.flow_from_directory(
+        f'{images_dir}/{split}',
         target_size=(img_width, img_height),
         batch_size=batch_size,
         shuffle=True,
         class_mode='categorical'
     )
 
-    gen_val = datagen.flow_from_directory(
-        f'{images_dir}/val',
-        target_size=(img_width, img_height),
-        batch_size=batch_size,
-        shuffle=True,
-        class_mode='categorical'
-    )
-
-    return gen_train, gen_val
+    return generator
 
 
-def get_combined_generators(images_dir, csv_dir, csv_data, *args):
+def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     """
     Creates train/val generators on images and csv data.
 
@@ -73,18 +57,10 @@ def get_combined_generators(images_dir, csv_dir, csv_data, *args):
         First value is the index.
     """
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator()
+    datagen = ImageDataGenerator(horizontal_flip=True, rotation_range=10)
 
-    gen_train = datagen.flow_from_directory(
-        f'{images_dir}/train',
-        target_size=(img_width, img_height),
-        batch_size=batch_size,
-        shuffle=True,
-        class_mode='categorical'
-    )
-
-    gen_val = datagen.flow_from_directory(
-        f'{images_dir}/val',
+    generator = datagen.flow_from_directory(
+        f'{images_dir}/{split}',
         target_size=(img_width, img_height),
         batch_size=batch_size,
         shuffle=True,
@@ -92,10 +68,8 @@ def get_combined_generators(images_dir, csv_dir, csv_data, *args):
     )
 
     # TODO: Change index to something more default
-    train_df = pd.read_csv(f'{csv_dir}/train.csv',
-                           usecols=csv_data, index_col=csv_data[0])
-    val_df = pd.read_csv(f'{csv_dir}/val.csv',
-                         usecols=csv_data, index_col=csv_data[0])
+    df = pd.read_csv(f'{csv_dir}/{split}.csv',
+                     usecols=csv_data, index_col=csv_data[0])
 
     def my_generator(image_gen, data):
         while True:
@@ -105,11 +79,10 @@ def get_combined_generators(images_dir, csv_dir, csv_data, *args):
             images, labels = image_gen.next()
             yield [images, row], labels
 
-    csv_train_gen = my_generator(gen_train, train_df)
-    csv_val_gen = my_generator(gen_val, val_df)
+    csv_generator = my_generator(generator, df)
 
-    _, features = train_df.shape
-    return csv_train_gen, csv_val_gen, gen_train, gen_val, features
+    _, features = df.shape
+    return csv_generator, generator, features
 
 
 def get_cnn_model(network, input_shape, main_input):
@@ -180,8 +153,10 @@ def train_on_images(network, images_dir, *args):
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
     # Get image generators
-    train_gen, val_gen = get_image_generators(
-        images_dir, img_width, img_height, batch_size)
+    train_gen = get_image_generator(
+        images_dir, 'train', img_width, img_height, batch_size)
+    val_gen = get_image_generator(
+        images_dir, 'val', img_width, img_height, batch_size)
 
     # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
@@ -210,7 +185,7 @@ def train_on_images(network, images_dir, *args):
     model = Model(base_model.input, predictions)
 
     # Create path to save training models and logs
-    top_weights_path = f'A_{network}_lr{lr_rate}_{batch_size}bs'
+    top_weights_path = f'A_{network}'
 
     # Use a multi-gpu model if available and configured
     if gpu_number > 1:
@@ -261,8 +236,7 @@ def train_on_images(network, images_dir, *args):
         callbacks=callback_list)
 
     # Create path to save the model
-    final_weights_path = f'{models_dir}/{network}/A_last_{network}_lr{lr_rate}_{batch_size}bs'
-    model.save(final_weights_path)
+    model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
 
 
 def train_combined(network, images_dir, csv_dir, csv_data, *args):
@@ -282,8 +256,10 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
     # Get combined and image generators, and number of features in csv files.
-    multi_train_gen, multi_val_gen, train_gen, val_gen, features = get_combined_generators(
-        images_dir, csv_dir, csv_data, img_width, img_height, batch_size)
+    multi_train_gen, train_gen, features = get_combined_generator(
+        images_dir, csv_dir, csv_data, 'train', img_width, img_height, batch_size)
+    multi_val_gen, val_gen, _ = get_combined_generator(
+        images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size)
 
     # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
@@ -328,7 +304,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         model = multi_gpu_model(model, gpus=gpu_number)
 
     # Create path to save training models and logs
-    top_weights_path = f'B_{network}_lr{lr_rate}_{batch_size}bs'
+    top_weights_path = f'B_{network}'
 
     # Compile model and set learning rate
     opt = Adam(lr=lr_rate)
@@ -376,8 +352,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     )
 
     # Create path to save the model
-    final_weights_path = f'{models_dir}/{network}/B_last_{network}_lr{lr_rate}_{batch_size}bs'
-    model.save(final_weights_path)
+    model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
 
 
 if __name__ == '__main__':
@@ -398,9 +373,7 @@ if __name__ == '__main__':
     epochs = config.getint('TRAINING', 'epochs')
     networks_list = config.get('TRAINING', 'cnn_network_list').split(',')
     gpu_number = config.getint('TRAINING', 'gpu_number')
-
     batch_size = batch_size * gpu_number
-
     # Read data paths
     models_dir = config.get('OUTPUT', 'models_dir')
     logs_dir = config.get('OUTPUT', 'logs_dir')
@@ -412,5 +385,5 @@ if __name__ == '__main__':
         args = [img_width, img_height, batch_size,
                 lr_rate, epochs, models_dir, logs_dir, gpu_number]
 
-        #train_on_images(network, images_dir, *args)
+        train_on_images(network, images_dir, *args)
         train_combined(network, images_dir, csv_dir, csv_data, *args)
