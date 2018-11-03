@@ -9,7 +9,7 @@ from keras.models import Model
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
-from keras.utils.training_utils import multi_gpu_model
+#from keras.utils.training_utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
 from keras.optimizers import Adam
@@ -27,7 +27,14 @@ def setup_dirs(models_dir, logs_dir, networks_list):
 
 def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator(horizontal_flip=True, rotation_range=10)
+    datagen = ImageDataGenerator(
+        horizontal_flip=True,
+        width_shift_range=0.3,
+        height_shift_range=0.1,
+        rotation_range=5,
+        zoom_range=0.3,
+        rescale=1./255
+    )
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -57,7 +64,14 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         First value is the index.
     """
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator(horizontal_flip=True, rotation_range=10)
+    datagen = ImageDataGenerator(
+        horizontal_flip=True,
+        width_shift_range=0.3,
+        height_shift_range=0.1,
+        rotation_range=5,
+        zoom_range=0.3,
+        rescale=1./255
+    )
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -188,8 +202,8 @@ def train_on_images(network, images_dir, *args):
     top_weights_path = f'A_{network}'
 
     # Use a multi-gpu model if available and configured
-    if gpu_number > 1:
-        model = multi_gpu_model(model, gpus=gpu_number)
+    # if gpu_number > 1:
+    #    model = multi_gpu_model(model, gpus=gpu_number)
 
     # Compile model and set learning rate
     opt = Adam(lr=lr_rate)
@@ -300,8 +314,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
 
     # Use a multi-gpu model if available and configured
-    if gpu_number > 1:
-        model = multi_gpu_model(model, gpus=gpu_number)
+    # if gpu_number > 1:
+    #    model = multi_gpu_model(model, gpus=gpu_number)
 
     # Create path to save training models and logs
     top_weights_path = f'B_{network}'
