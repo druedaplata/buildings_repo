@@ -21,14 +21,14 @@ from keras_script import get_image_generator, get_combined_generator, get_cnn_mo
 
 
 def get_matrix_from_gen(main_gen, model, split, name, net_id, output_dir, aux_gen=None):
-
+    print('Creating matrix...')
     if aux_gen:
         print(f'aux_gen: {aux_gen.n}')
         y_pred = model.predict_generator(
-            main_gen, steps=len(aux_gen), use_multiprocessing=True)
+            main_gen, steps=len(aux_gen), use_multiprocessing=False)
     else:
         aux_gen = main_gen
-        y_pred = model.predict_generator(main_gen, use_multiprocessing=True)
+        y_pred = model.predict_generator(main_gen, use_multiprocessing=False, steps=len(aux_gen), verbose=1)
     y_pred = np.argmax(y_pred, axis=-1)
     y_true = aux_gen.classes
 
@@ -50,6 +50,7 @@ def get_matrix_from_gen(main_gen, model, split, name, net_id, output_dir, aux_ge
 
 def test_on_images(network, images_dir, models_dir, *args):
     """"""
+    print('Testing on images...')
     # Extract parameters from args
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, figures_dir = args
 
@@ -79,11 +80,13 @@ def test_on_images(network, images_dir, models_dir, *args):
     models_list = glob(f'{path}/A*',)
 
     net_id = f'{os.path.basename(models_dir)}A_'
-
+    print('Loading model...')
     for h5_model in models_list:
         model.load_weights(h5_model)
+        print('Validation')
         get_matrix_from_gen(val_gen, model, 'val',
                             network, net_id, figures_dir)
+        print('Test')
         get_matrix_from_gen(test_gen, model, 'test',
                             network, net_id, figures_dir)
 
