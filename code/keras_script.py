@@ -247,7 +247,7 @@ def train_on_images(network, images_dir, *args):
 
 
     # Compile model and set learning rate
-    model.compile(loss=focal_loss(num_classes), 
+    model.compile(loss=focal_loss(list(range(num_classes))), 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -275,7 +275,7 @@ def train_on_images(network, images_dir, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss=[focal_loss(num_classes)], 
+    model.compile(loss=[focal_loss(list(range(num_classes)))], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -362,7 +362,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     top_weights_path = f'B_{network}'
 
     # Compile model and set learning rate
-    model.compile(loss=[focal_loss(num_classes)], 
+    model.compile(loss=[focal_loss(list(range(num_classes)))], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -390,7 +390,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss=[focal_loss(num_classes)], 
+    model.compile(loss=[focal_loss(list(range(num_classes)))], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
