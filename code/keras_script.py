@@ -17,6 +17,7 @@ from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
 from sklearn.utils import class_weight
 
+from tensorflow.python.ops import array_ops
 
 def setup_dirs(models_dir, logs_dir, networks_list):
     for net in networks_list:
@@ -152,20 +153,43 @@ def get_callback_list(network, path, models_dir, logs_dir):
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')]
     return callback_list
 
-def focal_loss(gamma=2.0, alpha=4.0):
+# focal loss with multi label
+def focal_loss(classes_num, gamma=2., alpha=.25, e=0.1):
+    # classes_num contains sample number of each classes
+    def focal_loss_fixed(target_tensor, prediction_tensor):
+        '''
+        prediction_tensor is the output tensor with shape [None, 100], where 100 is the number of classes
+        target_tensor is the label tensor, same shape as predcition_tensor
+        '''
 
-    def focal_loss_fixed(y_true, y_pred):
-        epsilon = 1e-9
-        y_true = tf.convert_to_tensor(y_true, tf.float32)
-        y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+        #1# get focal loss with no balanced weight which presented in paper function (4)
+        zeros = array_ops.zeros_like(prediction_tensor, dtype=prediction_tensor.dtype)
+        one_minus_p = array_ops.where(tf.greater(target_tensor,zeros), target_tensor - prediction_tensor, zeros)
+        FT = -1 * (one_minus_p ** gamma) * tf.log(tf.clip_by_value(prediction_tensor, 1e-8, 1.0))
 
-        model_out = tf.add(y_pred, epsilon)
-        ce = tf.multiply(y_true, -tf.log(model_out))
-        weight = tf.multiply(y_true, tf.pow(tf.subtract(1.0, model_out), gamma))
-        f1 = tf.multiply(alpha, tf.multiply(weight, ce))
-        reduced_f1 = tf.reduce_max(f1, axis=1)
-        return tf.reduce_mean(reduced_f1)
-    return focal_loss_fixed        
+        #2# get balanced weight alpha
+        classes_weight = array_ops.zeros_like(prediction_tensor, dtype=prediction_tensor.dtype)
+
+        total_num = float(sum(classes_num))
+        classes_w_t1 = [ total_num / ff for ff in classes_num ]
+        sum_ = sum(classes_w_t1)
+        classes_w_t2 = [ ff/sum_ for ff in classes_w_t1 ]   #scale
+        classes_w_tensor = tf.convert_to_tensor(classes_w_t2, dtype=prediction_tensor.dtype)
+        classes_weight += classes_w_tensor
+
+        alpha = array_ops.where(tf.greater(target_tensor, zeros), classes_weight, zeros)
+
+        #3# get balanced focal loss
+        balanced_fl = alpha * FT
+        balanced_fl = tf.reduce_sum(balanced_fl)
+
+        #4# add other op to prevent overfit
+        # reference : https://spaces.ac.cn/archives/4493
+        nb_classes = len(classes_num)
+        fianal_loss = (1-e) * balanced_fl + e * K.categorical_crossentropy(K.ones_like(prediction_tensor)/nb_classes, prediction_tensor)
+
+        return fianal_loss
+    return focal_loss_fixed     
 
 def train_on_images(network, images_dir, *args):
     """
@@ -223,7 +247,7 @@ def train_on_images(network, images_dir, *args):
 
 
     # Compile model and set learning rate
-    model.compile(loss=focal_loss(alpha=1), 
+    model.compile(loss=focal_loss(num_classes), 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -251,7 +275,7 @@ def train_on_images(network, images_dir, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss=focal_loss(alpha=1), 
+    model.compile(loss=[focal_loss(num_classes)], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -338,7 +362,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     top_weights_path = f'B_{network}'
 
     # Compile model and set learning rate
-    model.compile(loss=focal_loss(alpha=1), 
+    model.compile(loss=[focal_loss(num_classes)], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
@@ -366,7 +390,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss=focal_loss(alpha=1), 
+    model.compile(loss=[focal_loss(num_classes)], 
                   optimizer='nadam',
                   metrics=['accuracy'])
 
