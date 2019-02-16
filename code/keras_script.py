@@ -12,7 +12,7 @@ from keras.layers.merge import concatenate
 #from keras.utils.training_utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
-from keras.optimizers import Adam
+from keras.optimizers import Adam, Nadam
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
 from sklearn.utils import class_weight
@@ -152,6 +152,20 @@ def get_callback_list(network, path, models_dir, logs_dir):
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')]
     return callback_list
 
+def focal_loss(gamma=2, alpha=4):
+
+    def focal_loss_fixed(y_true, y_pred):
+        epsilon = 1.e-9
+        y_true = tf.convert_to_tensor(y_true, tf.float32)
+        y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+
+        model_out = tf.add(y_pred, epsilon)
+        ce = tf.multiply(y_true, -tf.log(model_out))
+        weight = tf.multiply(y_true, tf.pow(tf.subtract(1, model_out), gamma))
+        f1 = tf.multiply(alpha, tf.multiply(weight, ce))
+        reduced_f1 = tf.reduce_max(f1, axis=1)
+        return tf.reduce_mean(reduced_f1)
+    return focal_loss_fixed        
 
 def train_on_images(network, images_dir, *args):
     """
@@ -205,9 +219,12 @@ def train_on_images(network, images_dir, *args):
     # if gpu_number > 1:
     #    model = multi_gpu_model(model, gpus=gpu_number)
 
+    # Define focal loss function
+
+
     # Compile model and set learning rate
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt, loss='categorical_crossentropy',
+    model.compile(loss=focal_loss(alpha=1), 
+                  optimizer='nadam',
                   metrics=['accuracy'])
 
     # Get list of training parameters in keras
@@ -234,9 +251,8 @@ def train_on_images(network, images_dir, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
+    model.compile(loss=focal_loss(alpha=1), 
+                  optimizer='nadam',
                   metrics=['accuracy'])
 
     # Train the model on train split, for the second half epochs
@@ -299,15 +315,16 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features,))
-    aux = Dense(4096, activation='relu')(aux_input)
+    aux = Dense(2048, activation='relu')(aux_input)
     aux = Dropout(0.5)(aux)
-    aux = Dense(4096, activation='relu')(aux)
+    aux = Dense(2048, activation='relu')(aux)
     aux = Dropout(0.5)(aux)
     aux = Dense(1024, activation='relu')(aux)
 
     # Merge both networks
     # TODO: Test with different number of layers after merge.
     merge = concatenate([x, aux])
+    merge = Dense(1024, activation='relu')(merge)
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     # Create model object in keras for both types of inputs
@@ -321,8 +338,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     top_weights_path = f'B_{network}'
 
     # Compile model and set learning rate
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt, loss='categorical_crossentropy',
+    model.compile(loss=focal_loss(alpha=1), 
+                  optimizer='nadam',
                   metrics=['accuracy'])
 
     # Get list of training parameters in keras
@@ -349,9 +366,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    opt = Adam(lr=lr_rate)
-    model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
+    model.compile(loss=focal_loss(alpha=1), 
+                  optimizer='nadam',
                   metrics=['accuracy'])
 
     # Train the model on train split, for the second half epochs
