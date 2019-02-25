@@ -9,7 +9,7 @@ from keras.models import Model
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
-from keras.utils.training_utils import multi_gpu_model
+from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
 from keras.optimizers import Adam
