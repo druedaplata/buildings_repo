@@ -9,7 +9,7 @@ from keras.models import Model
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
-#from keras.utils.training_utils import multi_gpu_model
+from keras.utils.training_utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
 from keras.optimizers import Adam
@@ -237,8 +237,8 @@ def train_on_images(network, images_dir, *args):
     top_weights_path = f'A_{network}'
 
     # Use a multi-gpu model if available and configured
-    # if gpu_number > 1:
-    #    model = multi_gpu_model(model, gpus=gpu_number)
+    if gpu_number > 1:
+        model = multi_gpu_model(model, gpus=gpu_number)
 
     # Define focal loss function
 
@@ -352,8 +352,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
 
     # Use a multi-gpu model if available and configured
-    # if gpu_number > 1:
-    #    model = multi_gpu_model(model, gpus=gpu_number)
+    if gpu_number > 1:
+        model = multi_gpu_model(model, gpus=gpu_number)
 
     # Create path to save training models and logs
     top_weights_path = f'B_{network}'
