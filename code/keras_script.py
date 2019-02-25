@@ -336,16 +336,15 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features,))
-    aux = Dense(2048, activation='relu')(aux_input)
+    aux = Dense(4096, activation='relu')(aux_input)
     aux = Dropout(0.5)(aux)
-    aux = Dense(2048, activation='relu')(aux)
+    aux = Dense(4096, activation='relu')(aux)
     aux = Dropout(0.5)(aux)
     aux = Dense(1024, activation='relu')(aux)
 
     # Merge both networks
     # TODO: Test with different number of layers after merge.
     merge = concatenate([x, aux])
-    merge = Dense(1024, activation='relu')(merge)
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     # Create model object in keras for both types of inputs
