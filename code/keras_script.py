@@ -28,10 +28,10 @@ def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        width_shift_range=0.3,
-        height_shift_range=0.1,
-        rotation_range=5,
-        zoom_range=0.3,
+        featurewise_center=True,
+        featurewise_std_normalization=True,
+        zoom_range=0.1,
+        channel_shift_range=0.2,
         rescale=1./255
     )
 
@@ -62,13 +62,13 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         List of columns to use when training.
         First value is the index.
     """
-    img_width, img_height, batch_size = args
+    img_width, img_height, batch_size, gpu_number = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        width_shift_range=0.3,
-        height_shift_range=0.1,
-        rotation_range=5,
-        zoom_range=0.3,
+        featurewise_center=True,
+        featurewise_std_normalization=True,
+        zoom_range=0.1,
+        channel_shift_range=0.2,
         rescale=1./255
     )
 
@@ -128,6 +128,19 @@ def get_cnn_model(network, input_shape, main_input, *args):
     else:
         return base_model, len(base_model.layers)
 
+# Define personal metric
+def f2_score(y_true, y_pred):
+    y_true = tf.cast(y_true, "int32")
+    y_pred = tf.cast(tf.round(y_pred), "int32") # implicit 0.5 threshold via tf.round
+    y_correct = y_true * y_pred
+    sum_true = tf.reduce_sum(y_true, axis=1)
+    sum_pred = tf.reduce_sum(y_pred, axis=1)
+    sum_correct = tf.reduce_sum(y_correct, axis=1)
+    precision = sum_correct / sum_pred
+    recall = sum_correct / sum_true
+    f_score = 5 * precision * recall / (4 * precision + recall)
+    f_score = tf.where(tf.is_nan(f_score), tf.zeros_like(f_score), f_score)
+    return tf.reduce_mean(f_score) 
 
 def get_callback_list(network, path, models_dir, logs_dir):
     """
@@ -188,6 +201,7 @@ def focal_loss(gamma=2., alpha=4.):
         return tf.reduce_mean(reduced_fl)
     return focal_loss_fixed   
 
+
 def train_on_images(network, images_dir, *args):
     """
     Trains a convolutional neural network on images from images_dir.
@@ -218,11 +232,13 @@ def train_on_images(network, images_dir, *args):
     assert num_classes == len(np.unique(val_gen.classes))
 
     # Create class weights, useful for imbalanced datasets
-    class_weights = class_weight.compute_class_weight(
-        'balanced',
-        np.unique(train_gen.classes),
-        train_gen.classes
-    )
+    #class_weights = class_weight.compute_class_weight(
+    #    'balanced',
+    #    np.unique(train_gen.classes),
+    #    train_gen.classes
+    #)
+
+    class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
 
     # Get network model and change last layers for training
     x = base_model.output
@@ -246,7 +262,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy'])
+                  metrics=['accuracy'], f2_score)
 
     # Get list of training parameters in keras
     callback_list = get_callback_list(
@@ -260,7 +276,8 @@ def train_on_images(network, images_dir, *args):
         validation_data=val_gen,
         validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
-        callbacks=callback_list)
+        callbacks=callback_list,
+        use_multiprocessing=True)
 
     # Load the best model from previous training phase
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
@@ -274,7 +291,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy'])
+                  metrics=['accuracy', f2_score])
 
     # Train the model on train split, for the second half epochs
     model.fit_generator(
@@ -284,7 +301,8 @@ def train_on_images(network, images_dir, *args):
         validation_data=val_gen,
         validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
-        callbacks=callback_list)
+        callbacks=callback_list,
+        use_multiprocessing=True)
 
     # Create path to save the model
     model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
@@ -308,9 +326,9 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
 
     # Get combined and image generators, and number of features in csv files.
     multi_train_gen, train_gen, features = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'train', img_width, img_height, batch_size)
+        images_dir, csv_dir, csv_data, 'train', img_width, img_height, batch_size, gpu_number)
     multi_val_gen, val_gen, _ = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size)
+        images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size, gpu_number)
 
     # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
@@ -323,11 +341,14 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     assert num_classes == len(np.unique(val_gen.classes))
 
     # Create class weights, useful for imbalanced datasets
-    class_weights = class_weight.compute_class_weight(
-        'balanced',
-        np.unique(train_gen.classes),
-        train_gen.classes
-    )
+    #class_weights = class_weight.compute_class_weight(
+    #    'balanced',
+    #    np.unique(train_gen.classes),
+    #    train_gen.classes
+    #)
+
+    class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
+    
 
     # Get network model and change last layers for training
     x = base_model.output
@@ -360,7 +381,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy'])
+                  metrics=['accuracy', f2_score])
 
     # Get list of training parameters in keras
     callback_list = get_callback_list(
@@ -374,7 +395,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         validation_data=multi_val_gen,
         validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
-        callbacks=callback_list)
+        callbacks=callback_list,
+        use_multiprocessing=True)
 
     # Load the best model from previous training phase
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
@@ -388,7 +410,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy'])
+                  metrics=['accuracy', f2_score])
 
     # Train the model on train split, for the second half epochs
     model.fit_generator(
@@ -398,7 +420,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         validation_data=multi_val_gen,
         validation_steps=val_gen.n // batch_size,
         class_weight=class_weights,
-        callbacks=callback_list
+        callbacks=callback_list,
+        use_multiprocessing=True
     )
 
     # Create path to save the model
