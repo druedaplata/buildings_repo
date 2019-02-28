@@ -262,7 +262,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy'], f2_score)
+                  metrics=['accuracy', f2_score])
 
     # Get list of training parameters in keras
     callback_list = get_callback_list(
