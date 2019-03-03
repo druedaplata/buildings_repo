@@ -34,6 +34,9 @@ def get_image_generator(images_dir, split, *args):
         channel_shift_range=0.2,
         rescale=1./255
     )
+    # Estimated manually from training dataset
+    datagen.mean = np.array([99.74246, 107.59523, 110.0832], dtype=np.float32).reshape((1,1,3)) # ordering: [R, G, B]
+    datagen.std = 56.58319
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -71,6 +74,10 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         channel_shift_range=0.2,
         rescale=1./255
     )
+
+    # Estimated manually from training dataset
+    datagen.mean = np.array([99.74246, 107.59523, 110.0832], dtype=np.float32).reshape((1,1,3)) # ordering: [R, G, B]
+    datagen.std = 56.58319
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -130,17 +137,23 @@ def get_cnn_model(network, input_shape, main_input, *args):
 
 # Define personal metric
 def f2_score(y_true, y_pred):
-    y_true = tf.cast(y_true, "int32")
-    y_pred = tf.cast(tf.round(y_pred), "int32") # implicit 0.5 threshold via tf.round
-    y_correct = y_true * y_pred
-    sum_true = tf.reduce_sum(y_true, axis=1)
-    sum_pred = tf.reduce_sum(y_pred, axis=1)
-    sum_correct = tf.reduce_sum(y_correct, axis=1)
-    precision = sum_correct / sum_pred
-    recall = sum_correct / sum_true
-    f_score = 5 * precision * recall / (4 * precision + recall)
-    f_score = tf.where(tf.is_nan(f_score), tf.zeros_like(f_score), f_score)
-    return tf.reduce_mean(f_score) 
+    beta = 2
+    threshold_shift = 0
+
+    y_pred = K.clip(y_pred, 0, 1)
+
+    y_pred_bin = K.round(y_pred + threshold_shift)
+
+    tp = K.sum(K.round(y_true * y_pred_bin)) + K.epsilon()
+    fp = K.sum(K.round(K.clip(y_pred_bin - y_true, 0, 1)))
+    fn = K.sum(K.round(K.clip(y_true - y_pred, 0, 1)))
+
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+
+    beta_squared = beta ** 2
+    return (beta_squared + 1) * (precision * recall) / (beta_squared * precision + recall + K.epsilon())
+    
 
 def get_callback_list(network, path, models_dir, logs_dir):
     """
