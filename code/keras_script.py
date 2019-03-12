@@ -29,15 +29,11 @@ def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        featurewise_center=True,
-        featurewise_std_normalization=True,
-        zoom_range=0.1,
-        channel_shift_range=0.2,
+        brightness_range=[0.5,1.5],
+        shear_range=10,
+        channel_shift_range=50,
         rescale=1./255
     )
-    # Estimated manually from training dataset
-    datagen.mean = np.array([99.74246, 107.59523, 110.0832], dtype=np.float32).reshape((1,1,3)) # ordering: [R, G, B]
-    datagen.std = 56.58319
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -66,19 +62,14 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         List of columns to use when training.
         First value is the index.
     """
-    img_width, img_height, batch_size, gpu_number = args
+    img_width, img_height, batch_size = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        featurewise_center=True,
-        featurewise_std_normalization=True,
-        zoom_range=0.1,
-        channel_shift_range=0.2,
+        brightness_range=[0.5,1.5],
+        shear_range=10,
+        channel_shift_range=50,
         rescale=1./255
     )
-
-    # Estimated manually from training dataset
-    datagen.mean = np.array([99.74246, 107.59523, 110.0832], dtype=np.float32).reshape((1,1,3)) # ordering: [R, G, B]
-    datagen.std = 56.58319
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -89,8 +80,9 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     )
 
     # TODO: Change index to something more default
-    df = pd.read_csv(f'{csv_dir}/{split}.csv',
-                     usecols=csv_data, index_col=csv_data[0])
+    df = pd.read_csv(f'{csv_dir}/{split}.csv', 
+        usecols=csv_data,
+        index_col=csv_data[0])
 
     def my_generator(image_gen, data):
         while True:
@@ -172,12 +164,12 @@ def get_callback_list(network, path, models_dir, logs_dir):
     """
     callback_list = [
         ModelCheckpoint(f'{models_dir}/{network}/{path}.h5',
-                        monitor='val_f1_score', 
+                        monitor='val_precision', 
                         verbose=1, 
                         save_best_only=True,
                         mode='max'),
-        EarlyStopping(monitor='val_f1_score', patience=30, verbose=1),
-        ReduceLROnPlateau(monitor='val_f1_score', patience=10, verbose=1),
+        EarlyStopping(monitor='val_loss', patience=30, verbose=1),
+        ReduceLROnPlateau(monitor='val_loss', patience=10, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')]
     return callback_list
 
@@ -249,13 +241,13 @@ def train_on_images(network, images_dir, *args):
     assert num_classes == len(np.unique(val_gen.classes))
 
     # Create class weights, useful for imbalanced datasets
-    #class_weights = class_weight.compute_class_weight(
-    #    'balanced',
-    #    np.unique(train_gen.classes),
-    #    train_gen.classes
-    #)
+    class_weights = class_weight.compute_class_weight(
+        'balanced',
+        np.unique(train_gen.classes),
+        train_gen.classes
+    )
 
-    class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
+    #class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
 
     # Get network model and change last layers for training
     x = base_model.output
@@ -279,7 +271,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy', km.categorical_f1_score()])
+                  metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
     # Get list of training parameters in keras
     callback_list = get_callback_list(
@@ -308,7 +300,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy', km.categorical_f1_score()])
+                  metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
     # Train the model on train split, for the second half epochs
     model.fit_generator(
@@ -358,13 +350,13 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     assert num_classes == len(np.unique(val_gen.classes))
 
     # Create class weights, useful for imbalanced datasets
-    #class_weights = class_weight.compute_class_weight(
-    #    'balanced',
-    #    np.unique(train_gen.classes),
-    #    train_gen.classes
-    #)
+    class_weights = class_weight.compute_class_weight(
+        'balanced',
+        np.unique(train_gen.classes),
+        train_gen.classes
+    )
 
-    class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
+    #class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
     
 
     # Get network model and change last layers for training
@@ -398,7 +390,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy', km.categorical_f1_score()])
+                  metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
     # Get list of training parameters in keras
     callback_list = get_callback_list(
@@ -427,7 +419,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(loss='categorical_crossentropy', 
                   optimizer=Adam(lr=lr_rate),
-                  metrics=['accuracy', km.categorical_f1_score()])
+                  metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
     # Train the model on train split, for the second half epochs
     model.fit_generator(
