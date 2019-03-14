@@ -19,6 +19,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceL
 from sklearn.utils import class_weight
 import keras_metrics as km
 
+
 def setup_dirs(models_dir, logs_dir, networks_list):
     for net in networks_list:
         os.makedirs(f'{models_dir}/{net}', exist_ok=True)
@@ -30,7 +31,7 @@ def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        brightness_range=[0.5,1.5],
+        brightness_range=[0.5, 1.5],
         shear_range=10,
         channel_shift_range=50,
         rescale=1./255
@@ -66,7 +67,7 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     img_width, img_height, batch_size = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
-        brightness_range=[0.5,1.5],
+        brightness_range=[0.5, 1.5],
         shear_range=10,
         channel_shift_range=50,
         rescale=1./255
@@ -81,9 +82,9 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     )
 
     # TODO: Change index to something more default
-    df = pd.read_csv(f'{csv_dir}/{split}.csv', 
-        usecols=csv_data,
-        index_col=csv_data[0])
+    df = pd.read_csv(f'{csv_dir}/{split}.csv',
+                     usecols=csv_data,
+                     index_col=csv_data[0])
 
     def my_generator(image_gen, data):
         while True:
@@ -146,8 +147,8 @@ def get_callback_list(network, path, models_dir, logs_dir):
     """
     callback_list = [
         ModelCheckpoint(f'{models_dir}/{network}/{path}.h5',
-                        monitor='val_loss', 
-                        verbose=1, 
+                        monitor='val_loss',
+                        verbose=1,
                         save_best_only=True,
                         mode='min'),
         EarlyStopping(monitor='val_loss', patience=15, verbose=1),
@@ -212,9 +213,8 @@ def train_on_images(network, images_dir, *args):
 
     # Define focal loss function
 
-
     # Compile model and set learning rate
-    model.compile(loss='categorical_crossentropy', 
+    model.compile(loss='categorical_crossentropy',
                   optimizer=Adam(lr=lr_rate),
                   metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
@@ -243,7 +243,7 @@ def train_on_images(network, images_dir, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss='categorical_crossentropy', 
+    model.compile(loss='categorical_crossentropy',
                   optimizer=Adam(lr=lr_rate),
                   metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
@@ -302,7 +302,6 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     )
 
     #class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
-    
 
     # Get network model and change last layers for training
     x = base_model.output
@@ -333,7 +332,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     top_weights_path = f'B_{network}'
 
     # Compile model and set learning rate
-    model.compile(loss='categorical_crossentropy', 
+    model.compile(loss='categorical_crossentropy',
                   optimizer=Adam(lr=lr_rate),
                   metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
@@ -362,7 +361,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
-    model.compile(loss='categorical_crossentropy', 
+    model.compile(loss='categorical_crossentropy',
                   optimizer=Adam(lr=lr_rate),
                   metrics=['accuracy', km.categorical_precision(), km.categorical_recall()])
 
