@@ -146,12 +146,12 @@ def get_callback_list(network, path, models_dir, logs_dir):
     """
     callback_list = [
         ModelCheckpoint(f'{models_dir}/{network}/{path}.h5',
-                        monitor='val_precision', 
+                        monitor='val_loss', 
                         verbose=1, 
                         save_best_only=True,
-                        mode='max'),
-        EarlyStopping(monitor='val_loss', patience=30, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', patience=10, verbose=1),
+                        mode='min'),
+        EarlyStopping(monitor='val_loss', patience=15, verbose=1),
+        ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')]
     return callback_list
 
