@@ -12,6 +12,7 @@ from keras.layers.merge import concatenate
 from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
+from keras.layers import Conv2D
 from keras.optimizers import Adam
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
@@ -128,25 +129,6 @@ def get_cnn_model(network, input_shape, main_input, *args):
     else:
         return base_model, len(base_model.layers)
 
-# Define personal metric
-def f2_score(y_true, y_pred):
-    beta = 2
-    threshold_shift = 0
-
-    y_pred = K.clip(y_pred, 0, 1)
-
-    y_pred_bin = K.round(y_pred + threshold_shift)
-
-    tp = K.sum(K.round(y_true * y_pred_bin)) + K.epsilon()
-    fp = K.sum(K.round(K.clip(y_pred_bin - y_true, 0, 1)))
-    fn = K.sum(K.round(K.clip(y_true - y_pred, 0, 1)))
-
-    precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
-
-    beta_squared = beta ** 2
-    return (beta_squared + 1) * (precision * recall) / (beta_squared * precision + recall + K.epsilon())
-    
 
 def get_callback_list(network, path, models_dir, logs_dir):
     """
