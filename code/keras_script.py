@@ -12,7 +12,6 @@ from keras.layers.merge import concatenate
 from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
-from keras.layers import Conv2D
 from keras.optimizers import Adam
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
@@ -29,13 +28,12 @@ def setup_dirs(models_dir, logs_dir, networks_list):
 
 def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator(
-        horizontal_flip=True,
-        brightness_range=[0.5, 1.5],
-        shear_range=10,
-        channel_shift_range=50,
-        rescale=1./255
-    )
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                                 brightness_range=[0.5, 1.5],
+                                 shear_range=10,
+                                 channel_shift_range=50,
+                                 rescale=1./255
+                                 )
 
     generator = datagen.flow_from_directory(
         f'{images_dir}/{split}',
@@ -64,7 +62,7 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         List of columns to use when training.
         First value is the index.
     """
-    img_width, img_height, batch_size = args
+    img_width, img_height, batch_size, _ = args
     datagen = ImageDataGenerator(
         horizontal_flip=True,
         brightness_range=[0.5, 1.5],
@@ -198,7 +196,6 @@ def train_on_images(network, images_dir, *args):
     # Get network model and change last layers for training
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
     predictions = Dense(num_classes, activation='softmax')(x)
 
     # Create model object in keras
@@ -259,7 +256,7 @@ def train_on_images(network, images_dir, *args):
         use_multiprocessing=True)
 
     # Create path to save the model
-    model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
+    # model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
 
 
 def train_combined(network, images_dir, csv_dir, csv_data, *args):
@@ -306,15 +303,14 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Get network model and change last layers for training
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features,))
-    aux = Dense(4096, activation='relu')(aux_input)
-    aux = Dropout(0.5)(aux)
-    aux = Dense(4096, activation='relu')(aux)
-    aux = Dropout(0.5)(aux)
-    aux = Dense(1024, activation='relu')(aux)
+    aux = Dense(256, activation='relu')(aux_input)
+    aux = Dropout(0.3)(aux)
+    aux = Dense(128, activation='relu')(aux)
+    aux = Dropout(0.3)(aux)
+    aux = Dense(64, activation='relu')(aux)
 
     # Merge both networks
     # TODO: Test with different number of layers after merge.
@@ -378,7 +374,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     )
 
     # Create path to save the model
-    model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
+    # model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
 
 
 if __name__ == '__main__':
