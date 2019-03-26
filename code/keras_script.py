@@ -194,10 +194,10 @@ def get_callback_list(network, path, models_dir, logs_dir):
     callback_list = [
         ModelCheckpoint(
             f'{models_dir}/{network}/{path}.h5',
-            monitor='val_loss',
+            monitor='val_f1_score',
             verbose=1,
             save_best_only=True,
-            mode='min'),
+            mode='max'),
         EarlyStopping(monitor='val_loss', patience=15, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')
@@ -276,8 +276,7 @@ def train_on_images(network, images_dir, *args):
         optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
-            km.categorical_precision(),
-            km.categorical_recall()
+            km.categorical_f1_score()
         ])
 
     # Get list of training parameters in keras
@@ -314,8 +313,7 @@ def train_on_images(network, images_dir, *args):
         optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
-            km.categorical_precision(),
-            km.categorical_recall()
+            km.categorical_f1_score()
         ])
 
     # Train the model on train split, for the second half epochs
@@ -422,8 +420,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
-            km.categorical_precision(),
-            km.categorical_recall()
+            km.categorical_f1_score()
         ])
 
     # Get list of training parameters in keras
@@ -460,8 +457,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
-            km.categorical_precision(),
-            km.categorical_recall()
+            km.categorical_f1_score()
         ])
 
     # Train the model on train split, for the second half epochs
