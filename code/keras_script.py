@@ -36,6 +36,8 @@ def get_image_generator(images_dir, split, *args):
         horizontal_flip=True,
         brightness_range=[0.5, 1.5],
         shear_range=10,
+        zoom_range=0.2,
+        rotation_range=15,
         channel_shift_range=50,
         rescale=1. / 255)
 
@@ -57,8 +59,10 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
         horizontal_flip=True,
         brightness_range=[0.5, 1.5],
         shear_range=10,
+        zoom_range=0.2,
+        rotation_range=15,
         channel_shift_range=50,
-        rescale=1. / 255,
+        rescale=1. / 255
     )
 
     datagen = ImageDataGenerator()
