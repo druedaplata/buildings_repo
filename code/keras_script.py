@@ -16,7 +16,7 @@ from keras.layers.merge import concatenate
 from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
-from keras.optimizers import Adam
+from keras.optimizers import Adam, SGD
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
 from sklearn.utils import class_weight
@@ -269,7 +269,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
             km.categorical_precision(),
@@ -307,7 +307,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
             km.categorical_precision(),
@@ -415,7 +415,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
             km.categorical_precision(),
@@ -453,7 +453,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
         metrics=[
             'accuracy',
             km.categorical_precision(),
