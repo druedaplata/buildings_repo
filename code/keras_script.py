@@ -16,7 +16,7 @@ from keras.layers.merge import concatenate
 from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
-from keras.optimizers import Adam, SGD
+from keras.optimizers import Adam, SGD, Adadelta
 from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
 from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
 from sklearn.utils import class_weight
@@ -55,6 +55,7 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
 
     img_width, img_height, batch_size = args
     # Create image preprocessing
+    # TODO: Change this, it doesn't work on apply preprocessing
     data_gen_args = dict(
         horizontal_flip=True,
         brightness_range=[0.5, 1.5],
@@ -87,7 +88,8 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
                     i = 0
                     random.shuffle(images_list)
                 image_path = images_list[i]
-                image_name = os.path.basename(image_path).replace('.JPG', '')
+                # Remove last .JPG from image, generated images have two.
+                image_name = os.path.basename(image_path)[:-4]
                 image = datagen.apply_transform(
                     krs_image.load_img(
                         image_path,
