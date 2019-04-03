@@ -13,6 +13,9 @@ from keras.preprocessing import image as krs_image
 from keras.layers import GlobalAveragePooling2D, Input
 from keras.layers.merge import concatenate
 
+import imgaug as ia
+from imgaug import augmenters as iaa
+
 from keras.utils import multi_gpu_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.core import Dense, Dropout
@@ -30,25 +33,80 @@ def setup_dirs(models_dir, logs_dir, networks_list):
     os.makedirs(f'{logs_dir}', exist_ok=True)
 
 
+def sometimes(aug): return iaa.Sometimes(0.5, aug)
+
+
+# Create preprocessing pipeline
+preprocessing = iaa.Sequential(
+    [
+        # Apply the following to most images
+        iaa.Fliplr(0.6),
+        # Crop images by -5% and 10% of height/width
+        sometimes(iaa.CropAndPad(
+            percent=(-0.05, 0.1),
+            pad_mode=ia.ALL,
+            pad_cval=(0, 255)
+        )),
+        iaa.SomeOf(
+            (0, 3),
+            [
+                iaa.Affine(rotate=(-15, 15)),
+                iaa.CoarseSaltAndPepper(p=0.1, size_percent=0.07),
+                iaa.Affine(shear=(-15, 15)),
+                iaa.ChannelShuffle(0.3)
+            ],
+            random_order=True),
+    ],
+    random_order=True
+)
+
+
 def get_image_generator(images_dir, split, *args):
     img_width, img_height, batch_size = args
-    datagen = ImageDataGenerator(
-        horizontal_flip=True,
-        brightness_range=[0.5, 1.5],
-        shear_range=10,
-        zoom_range=0.2,
-        rotation_range=15,
-        channel_shift_range=50,
-        rescale=1. / 255)
 
-    generator = datagen.flow_from_directory(
-        f'{images_dir}/{split}',
-        target_size=(img_width, img_height),
-        batch_size=batch_size,
-        shuffle=True,
-        class_mode='categorical')
+    image_file_list = glob(f'{images_dir}/{split}/**/*.JPG', recursive=True)
+    dirs = sorted(os.listdir(f'{images_dir}/{split}'))
+    num_classes = len(dirs)
+    num_images = len(image_file_list)
+    classes = {v: i for i, v in enumerate(dirs)}
+    random.shuffle(image_file_list)
 
-    return generator
+    datagen = ImageDataGenerator()
+
+    def image_generator(images_list, batch_size):
+        i = 0
+        while True:
+            batch = {'images': [], 'labels': []}
+            for b in range(batch_size):
+                if i == len(images_list):
+                    i = 0
+                    random.shuffle(images_list)
+                # Load image
+                image_path = images_list[i]
+                image = krs_image.load_img(
+                    image_path, target_size=(img_height, img_width))
+                image = krs_image.img_to_array(image)
+                # Get label from path
+                label = classes[image_path.split('/')[-2]]
+
+                i += 1
+                batch['images'].append(image)
+                batch['labels'].append(label)
+
+            # Convert images to batch form
+            batch['images'] = np.array(batch['images'], dtype=np.uint8)
+            # Standardize images in batch
+            batch['images'] = datagen.standardize(batch['images'])
+            # Apply preprocessing to image batch
+            batch['images'] = preprocessing.augment_images(batch['images'])
+
+            batch['labels'] = np.eye(len(dirs))[batch['labels']]
+
+            yield batch['images'], batch['labels']
+
+    generator = image_generator(image_file_list, batch_size)
+
+    return num_images, num_classes, generator
 
 
 def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
@@ -221,44 +279,34 @@ def train_on_images(network, images_dir, *args):
     img_width, img_height, batch_size, lr_rate, epochs, models_dir, logs_dir, gpu_number = args
 
     # Get image generators
-    train_gen = get_image_generator(
-        images_dir,
-        'train',
-        img_width,
-        img_height,
-        batch_size,
-    )
-    val_gen = get_image_generator(
-        images_dir,
-        'val',
-        img_width,
-        img_height,
-        batch_size,
-    )
+    num_images_train, num_classes_train, train_gen = get_image_generator(
+        images_dir, 'train', img_width, img_height, batch_size)
+
+    num_images_val, num_classes_val, val_gen = get_image_generator(
+        images_dir, 'val', img_width, img_height, batch_size)
 
     # Get network model for an image input shape
     input_shape = (img_width, img_height, 3)
     main_input = Input(shape=input_shape)
     base_model, last_layer_number = get_cnn_model(
-        network,
-        input_shape,
-        main_input,
-    )
+        network, input_shape, main_input)
 
     # Make sure train/val have the same number of classes
-    num_classes = len(np.unique(train_gen.classes))
-    assert num_classes == len(np.unique(val_gen.classes))
+    assert num_classes_train == num_classes_val
 
     # Create class weights, useful for imbalanced datasets
-    class_weights = class_weight.compute_class_weight(
-        'balanced', np.unique(train_gen.classes), train_gen.classes)
+    # class_weights = class_weight.compute_class_weight(
+    #    'balanced', np.unique(train_gen.classes), train_gen.classes)
 
-    #class_weights = {0:48, 1:1, 2:1, 3:27, 4:30, 5:39, 6:12, 7:1}
+    if num_classes_train == 8:
+        class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 50, 7: 1}
+    if num_classes_train == 7:
+        class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
 
     # Get network model and change last layers for training
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    predictions = Dense(num_classes, activation='softmax')(x)
+    predictions = Dense(num_classes_train, activation='softmax')(x)
 
     # Create model object in keras
     model = Model(base_model.input, predictions)
@@ -275,7 +323,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
+        optimizer=Adam(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -292,10 +340,10 @@ def train_on_images(network, images_dir, *args):
     # Train the model on train split, for half the epochs
     model.fit_generator(
         train_gen,
-        steps_per_epoch=train_gen.n // batch_size,
+        steps_per_epoch=num_images_train // batch_size,
         epochs=epochs // 2,
         validation_data=val_gen,
-        validation_steps=val_gen.n // batch_size,
+        validation_steps=num_images_val // batch_size,
         class_weight=class_weights,
         callbacks=callback_list,
         use_multiprocessing=True)
@@ -312,7 +360,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
+        optimizer=Adam(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -321,10 +369,10 @@ def train_on_images(network, images_dir, *args):
     # Train the model on train split, for the second half epochs
     model.fit_generator(
         train_gen,
-        steps_per_epoch=train_gen.n // batch_size,
+        steps_per_epoch=num_images_train // batch_size,
         epochs=epochs // 2,
         validation_data=val_gen,
-        validation_steps=val_gen.n // batch_size,
+        validation_steps=num_images_val // batch_size,
         class_weight=class_weights,
         callbacks=callback_list,
         use_multiprocessing=True)
@@ -419,7 +467,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
+        optimizer=Adam(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -456,7 +504,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=SGD(lr=lr_rate, decay=1e-6, momentum=0.9, nesterov=True),
+        optimizer=Adam(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -510,4 +558,4 @@ if __name__ == '__main__':
         ]
 
         train_on_images(network, images_dir, *args)
-        train_combined(network, images_dir, csv_dir, csv_data, *args)
+        #train_combined(network, images_dir, csv_dir, csv_data, *args)
