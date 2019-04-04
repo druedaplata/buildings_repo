@@ -43,11 +43,7 @@ preprocessing = iaa.Sequential(
         iaa.Fliplr(0.6),
         iaa.GaussianBlur(0.7),
         # Crop images by -5% and 10% of height/width
-        sometimes(iaa.CropAndPad(
-            percent=(-0.05, 0.1),
-            pad_mode=ia.ALL,
-            pad_cval=(0, 255)
-        )),
+        sometimes(iaa.Crop(percent=0.15)),
 
         iaa.ChannelShuffle(0.5, [1, 0, 1]),
 
