@@ -317,7 +317,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -354,7 +354,7 @@ def train_on_images(network, images_dir, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -450,7 +450,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
@@ -487,7 +487,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     # Compile model with frozen layers, and set learning rate
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(lr=lr_rate),
+        optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
             km.categorical_f1_score()
