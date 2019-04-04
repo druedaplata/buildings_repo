@@ -41,23 +41,25 @@ preprocessing = iaa.Sequential(
     [
         # Apply the following to most images
         iaa.Fliplr(0.6),
+        iaa.GaussianBlur(0.7),
         # Crop images by -5% and 10% of height/width
         sometimes(iaa.CropAndPad(
             percent=(-0.05, 0.1),
             pad_mode=ia.ALL,
             pad_cval=(0, 255)
         )),
-        iaa.SomeOf(
-            (0, 3),
-            [
-                iaa.Affine(rotate=(-15, 15)),
-                iaa.CoarseSaltAndPepper(p=0.1, size_percent=0.07),
-                iaa.Affine(shear=(-15, 15)),
-                iaa.ChannelShuffle(0.3)
-            ],
+
+        iaa.ChannelShuffle(0.5, [1, 0, 1]),
+
+        iaa.SomeOf((1, 3),
+                   [
+            iaa.Affine(rotate=(-15, 15)),
+            #iaa.CoarseSaltAndPepper(p=0.1, size_percent=0.07),
+            iaa.Affine(shear=(-15, 15))
+
+        ],
             random_order=True),
-    ],
-    random_order=True
+    ]
 )
 
 
@@ -246,12 +248,12 @@ def get_callback_list(network, path, models_dir, logs_dir):
     callback_list = [
         ModelCheckpoint(
             f'{models_dir}/{network}/{path}.h5',
-            monitor='val_f1_score',
+            monitor='val_loss',
             verbose=1,
             save_best_only=True,
-            mode='max'),
-        EarlyStopping(monitor='val_loss', patience=15, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
+            mode='min'),
+        EarlyStopping(monitor='val_loss', patience=50, verbose=1),
+        #ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')
     ]
     return callback_list
@@ -538,5 +540,5 @@ if __name__ == '__main__':
             logs_dir, gpu_number
         ]
 
-        #train_on_images(network, images_dir, *args)
+        train_on_images(network, images_dir, *args)
         train_combined(network, images_dir, csv_dir, csv_data, *args)
