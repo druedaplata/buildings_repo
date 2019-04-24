@@ -11,7 +11,7 @@ from keras import backend as K
 from keras.models import Model
 from keras.preprocessing import image as krs_image
 from keras.layers import GlobalAveragePooling2D, Input
-from keras.layers.merge import concatenate
+from keras.layers.merge import concatenate, add, multiply, average
 
 import imgaug as ia
 from imgaug import augmenters as iaa
@@ -227,6 +227,64 @@ def get_cnn_model(network, input_shape, main_input, *args):
         return base_model, len(base_model.layers)
 
 
+def get_image_model(network, num_classes, img_width, img_height):
+    """Returns a model that uses only images as input.
+
+    Arguments:
+        network {string} -- Name of the network trained on imagenet
+        num_classes {int} -- Number of classes in the dataset
+        img_width {int} -- Image width
+        img_height {int} -- Image height
+
+    Returns:
+        Keras Model -- Keras Model ready to compile.
+    """
+    input_shape = (img_width, img_height, 3)
+    image_input = Input(shape=input_shape)
+    base_model, last_layer_number = get_cnn_model(
+        network, input_shape, image_input)
+
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    predictions = Dense(num_classes, activation='softmax')(x)
+
+    return Model(base_model.input, predictions), last_layer_number
+
+
+def get_csv_plus_image_model(network, num_classes, features, img_width, img_height, merge_type='concat'):
+    input_shape = (img_width, img_height, 3)
+    image_input = Input(shape=input_shape)
+    base_model, last_layer_number = get_cnn_model(
+        network, input_shape, image_input)
+
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    # Use a Dense layer after GAP to make sure shape is the same on merge, no matter which network is running.
+    x = Dense(512, activation='relu')(x)
+
+    # Create MLP using features from csv files
+    aux_input = Input(shape=(features, ))
+    # 256, 128, 64
+    aux = Dense(512, activation='relu')(aux_input)
+    aux = Dropout(0.3)(aux)
+    aux = Dense(512, activation='relu')(aux)
+    aux = Dropout(0.3)(aux)
+    aux = Dense(512, activation='relu')(aux)
+
+    # Merge both inputs
+    if merge_type == 'concat':
+        merge = concatenate([x, aux])
+    elif merge_type == 'add':
+        merge = add([x, aux])
+    elif merge_type == 'mul':
+        merge = multiply([x, aux])
+    elif merge_type == 'avg':
+        merge = average([x, aux])
+    predictions = Dense(num_classes, activation='softmax')(merge)
+
+    return Model(inputs=[image_input, aux_input], output=predictions), last_layer_number
+
+
 def get_callback_list(network, path, models_dir, logs_dir):
     """
     Returns a list of parameters for training in keras.
@@ -275,12 +333,6 @@ def train_on_images(network, images_dir, *args):
     num_images_val, num_classes_val, val_gen = get_image_generator(
         images_dir, 'val', img_width, img_height, batch_size)
 
-    # Get network model for an image input shape
-    input_shape = (img_width, img_height, 3)
-    main_input = Input(shape=input_shape)
-    base_model, last_layer_number = get_cnn_model(
-        network, input_shape, main_input)
-
     # Make sure train/val have the same number of classes
     assert num_classes_train == num_classes_val
 
@@ -293,13 +345,9 @@ def train_on_images(network, images_dir, *args):
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
 
-    # Get network model and change last layers for training
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    predictions = Dense(num_classes_train, activation='softmax')(x)
-
-    # Create model object in keras
-    model = Model(base_model.input, predictions)
+    # Get image model
+    model, last_layer_number = get_image_model(
+        network, num_classes_train, img_width, img_height)
 
     # Create path to save training models and logs
     top_weights_path = f'A_{network}'
@@ -307,8 +355,6 @@ def train_on_images(network, images_dir, *args):
     # Use a multi-gpu model if available and configured
     if gpu_number > 1:
         model = multi_gpu_model(model, gpus=gpu_number)
-
-    # Define focal loss function
 
     # Compile model and set learning rate
     model.compile(
@@ -371,7 +417,7 @@ def train_on_images(network, images_dir, *args):
     # model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
 
 
-def train_combined(network, images_dir, csv_dir, csv_data, *args):
+def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
     """
     Trains a network combining a convolutional network and a multilayer perceptron
     on images and csv data.
@@ -395,15 +441,6 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
         images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size
     )
 
-    # Get network model for an image input shape
-    input_shape = (img_width, img_height, 3)
-    main_input = Input(shape=input_shape)
-    base_model, last_layer_number = get_cnn_model(
-        network,
-        input_shape,
-        main_input,
-    )
-
     # Make sure train/val have the same number of classes
     assert num_classes_train == num_classes_val
 
@@ -416,32 +453,16 @@ def train_combined(network, images_dir, csv_dir, csv_data, *args):
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
 
-    # Get network model and change last layers for training
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-
-    # Create MLP using features from csv files
-    aux_input = Input(shape=(features, ))
-    aux = Dense(256, activation='relu')(aux_input)
-    aux = Dropout(0.3)(aux)
-    aux = Dense(128, activation='relu')(aux)
-    aux = Dropout(0.3)(aux)
-    aux = Dense(64, activation='relu')(aux)
-
-    # Merge both networks
-    # TODO: Test with different number of layers after merge.
-    merge = concatenate([x, aux])
-    predictions = Dense(num_classes_train, activation='softmax')(merge)
-
     # Create model object in keras for both types of inputs
-    model = Model(inputs=[main_input, aux_input], outputs=predictions)
+    model, last_layer_number = get_csv_plus_image_model(
+        network, num_classes_train, features, img_height, img_height, merge_type)
 
     # Use a multi-gpu model if available and configured
     if gpu_number > 1:
         model = multi_gpu_model(model, gpus=gpu_number)
 
     # Create path to save training models and logs
-    top_weights_path = f'B_{network}'
+    top_weights_path = f'B_{merge_type}_{network}'
 
     # Compile model and set learning rate
     model.compile(
@@ -536,5 +557,7 @@ if __name__ == '__main__':
             logs_dir, gpu_number
         ]
 
-        train_on_images(network, images_dir, *args)
-        train_combined(network, images_dir, csv_dir, csv_data, *args)
+        #train_on_images(network, images_dir, *args)
+        for merge_type in ['add', 'avg', 'mul', 'concat']:
+            train_combined(network, images_dir, csv_dir,
+                           csv_data, merge_type, *args)
