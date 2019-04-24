@@ -43,7 +43,7 @@ preprocessing = iaa.Sequential(
         iaa.Fliplr(0.6),
         iaa.GaussianBlur(0.7),
         # Crop images by -5% and 10% of height/width
-        sometimes(iaa.Crop(percent=0.15)),
+        sometimes(iaa.Crop(percent=(0, 0.15))),
 
         iaa.ChannelShuffle(0.5, [1, 0, 1]),
 
@@ -306,7 +306,7 @@ def get_callback_list(network, path, models_dir, logs_dir):
             verbose=1,
             save_best_only=True,
             mode='min'),
-        EarlyStopping(monitor='val_loss', patience=50, verbose=1),
+        EarlyStopping(monitor='val_loss', patience=20, verbose=1),
         #ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')
     ]
