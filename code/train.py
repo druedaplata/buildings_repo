@@ -26,6 +26,13 @@ from sklearn.utils import class_weight
 
 
 def setup_dirs(models_dir, logs_dir, networks_list):
+    """Creates output directories to save models and logs for each network used.
+
+    Arguments:
+        models_dir {string} -- Path to the output directory for models
+        logs_dir {string} -- Path to the output directory for logs
+        networks_list {list} -- List of strings for each network
+    """
     for net in networks_list:
         os.makedirs(f'{models_dir}/{net}', exist_ok=True)
 
@@ -59,6 +66,15 @@ preprocessing = iaa.Sequential(
 
 
 def get_image_generator(images_dir, split, *args):
+    """Creates a custom image generator and applies the preprocessing pipeline.
+
+    Arguments:
+        images_dir {string} -- Path to images directory where splits are saved in different subdirs.
+        split {string} -- Data split used from the images directory
+
+    Returns:
+        [tuple] -- Number of images, number of classes and a custom generator for Keras
+    """
     img_width, img_height, batch_size = args
 
     image_file_list = glob(f'{images_dir}/{split}/**/*.JPG', recursive=True)
@@ -78,23 +94,22 @@ def get_image_generator(images_dir, split, *args):
                 if i == len(images_list):
                     i = 0
                     random.shuffle(images_list)
-                # Load image
+
+                # Load image from path
                 image_path = images_list[i]
                 image = krs_image.load_img(
                     image_path, target_size=(img_height, img_width))
                 image = krs_image.img_to_array(image)
+
                 # Get label from path
                 label = classes[image_path.split('/')[-2]]
 
-                i += 1
                 batch['images'].append(image)
                 batch['labels'].append(label)
+                i += 1
 
-            # Convert images to batch form
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
-            # Standardize images in batch
             batch['images'] = datagen.standardize(batch['images'])
-            # Apply preprocessing to image batch
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['labels'] = np.eye(len(dirs))[batch['labels']]
@@ -107,7 +122,17 @@ def get_image_generator(images_dir, split, *args):
 
 
 def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
+    """Creates a custom image and csv generator, and applies the preprocessing pipeline.
 
+    Arguments:
+        images_dir {string} -- Path to the image directory where splits are saved in subdirs
+        csv_dir {string} -- Path to the csv directory where splits are saved in .csv files.
+        csv_data {list} -- List of columns used from the current csv loaded
+        split {string} -- Data split used from images and csv
+
+    Returns:
+        [tuple] -- [Number of images, number of classes, number of features used from csv and custom combined generator for keras]
+    """
     img_width, img_height, batch_size = args
 
     image_file_list = glob(f'{images_dir}/{split}/**/*.JPG', recursive=True)
@@ -138,7 +163,6 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
                     image_path, target_size=(img_height, img_width))
                 image = krs_image.img_to_array(image)
 
-                i += 1
                 # Get label from CSV
                 csv_attrs = dataframe.loc[image_name, :]
                 label = classes[csv_attrs['clase']]
@@ -147,12 +171,10 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
                 batch['images'].append(image)
                 batch['csv'].append(csv_attrs)
                 batch['labels'].append(label)
+                i += 1
 
-            # Convert images to batch form
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
-            # Standardize images in batch
             batch['images'] = datagen.standardize(batch['images'])
-            # Apply preprocessing to image batch
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['csv'] = np.array(batch['csv'])
@@ -183,40 +205,19 @@ def get_cnn_model(network, input_shape, main_input, *args):
                   (img_width, img_height, channels)
 
     main_input : Input
-                 Input object using the input shape defined, redundancy for a bug in keras.
+                 Input object using the input shape defined, 
+                 redundancy for a bug in keras.
 
     """
+    args = {'input_shape': input_shape, 'weights': 'imagenet',
+            'include_top': False, 'input_tensor': main_input}
+
     models = {
-        'inceptionV3':
-        InceptionV3(
-            input_shape=input_shape,
-            weights='imagenet',
-            include_top=False,
-            input_tensor=main_input),
-        'vgg16':
-        VGG16(
-            input_shape=input_shape,
-            weights='imagenet',
-            include_top=False,
-            input_tensor=main_input),
-        'vgg19':
-        VGG16(
-            input_shape=input_shape,
-            weights='imagenet',
-            include_top=False,
-            input_tensor=main_input),
-        'xception':
-        Xception(
-            input_shape=input_shape,
-            weights='imagenet',
-            include_top=False,
-            input_tensor=main_input),
-        'resnet50':
-        ResNet50(
-            input_shape=input_shape,
-            weights='imagenet',
-            include_top=False,
-            input_tensor=main_input)
+        'inceptionV3': InceptionV3(**args),
+        'vgg16': VGG16(**args),
+        'vgg19': VGG19(**args),
+        'xception': Xception(**args),
+        'resnet50': ResNet50(**args)
     }
 
     base_model = models[network]
@@ -230,7 +231,7 @@ def get_image_model(network, num_classes, img_width, img_height):
     """Returns a model that uses only images as input.
 
     Arguments:
-        network {string} -- Name of the network trained on imagenet
+        network {string} -- Name of the network to be used pretrained on imagenet
         num_classes {int} -- Number of classes in the dataset
         img_width {int} -- Image width
         img_height {int} -- Image height
@@ -251,6 +252,21 @@ def get_image_model(network, num_classes, img_width, img_height):
 
 
 def get_csv_plus_image_model(network, num_classes, features, img_width, img_height, merge_type='concat'):
+    """Returns a model that uses images and csv as Input
+
+    Arguments:
+        network {string} -- Name of the network to use pretrained on imagenet
+        num_classes {int} -- Number of classes in the dataset
+        features {int} -- Number of features used from csv data
+        img_width {int} -- Image width
+        img_height {int} -- Image height
+
+    Keyword Arguments:
+        merge_type {str} -- [Type of merge process for inner neural networks] (default: {'concat'})
+
+    Returns:
+        [tuple] -- Keras Model with dual input and last layer number from cnn part.
+    """
     input_shape = (img_width, img_height, 3)
     image_input = Input(shape=input_shape)
     base_model, last_layer_number = get_cnn_model(
@@ -332,13 +348,9 @@ def train_on_images(network, images_dir, *args):
     num_images_val, num_classes_val, val_gen = get_image_generator(
         images_dir, 'val', img_width, img_height, batch_size)
 
-    # Make sure train/val have the same number of classes
     assert num_classes_train == num_classes_val
 
     # Create class weights, useful for imbalanced datasets
-    # class_weights = class_weight.compute_class_weight(
-    #    'balanced', np.unique(train_gen.classes), train_gen.classes)
-
     if num_classes_train == 8:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 50, 7: 1}
     if num_classes_train == 7:
@@ -412,9 +424,6 @@ def train_on_images(network, images_dir, *args):
         callbacks=callback_list,
         use_multiprocessing=True)
 
-    # Create path to save the model
-    # model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
-
 
 def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
     """
@@ -440,13 +449,9 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
         images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size
     )
 
-    # Make sure train/val have the same number of classes
     assert num_classes_train == num_classes_val
 
     # Create class weights, useful for imbalanced datasets
-    # class_weights = class_weight.compute_class_weight(
-    #    'balanced', np.unique(train_gen.classes), train_gen.classes)
-
     if num_classes_train == 8:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 50, 7: 1}
     if num_classes_train == 7:
@@ -520,9 +525,6 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
         callbacks=callback_list,
         use_multiprocessing=True)
 
-    # Create path to save the model
-    # model.save(f'{models_dir}/{network}/{top_weights_path}.h5')
-
 
 if __name__ == '__main__':
 
@@ -556,7 +558,7 @@ if __name__ == '__main__':
             logs_dir, gpu_number
         ]
 
-        #train_on_images(network, images_dir, *args)
+        train_on_images(network, images_dir, *args)
         for merge_type in ['add', 'avg', 'mul', 'concat']:
             train_combined(network, images_dir, csv_dir,
                            csv_data, merge_type, *args)

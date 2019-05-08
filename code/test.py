@@ -23,8 +23,8 @@ from keras.preprocessing.image import ImageDataGenerator
 from sklearn.metrics import confusion_matrix, fbeta_score
 from tqdm import tqdm
 
-from keras_script import (get_cnn_model, get_combined_generator,
-                          get_image_generator)
+from train import (get_cnn_model, get_combined_generator,
+                   get_image_generator)
 
 
 def get_report(generator, num_images, num_classes, batch_size, model, split, net_name, net_id, figures_dir):
