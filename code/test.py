@@ -1,27 +1,30 @@
+import configparser
 import os
+from glob import glob
+
+import keras_metrics as km
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from glob import glob
-import configparser
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, fbeta_score
 import tensorflow as tf
+from keras import Model
+from keras import backend as K
+from keras import metrics
+from keras.applications import VGG16, VGG19, InceptionV3, ResNet50, Xception
+from keras.callbacks import (EarlyStopping, ModelCheckpoint, ReduceLROnPlateau,
+                             TensorBoard)
+from keras.layers import GlobalAveragePooling2D, Input
+from keras.layers.core import Dense, Dropout
+from keras.layers.merge import concatenate
+from keras.models import load_model
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import confusion_matrix, fbeta_score
 from tqdm import tqdm
 
-from keras.models import load_model
-from keras import metrics
-from keras.optimizers import Adam
-from keras import backend as K, Model
-from keras.layers.merge import concatenate
-from keras.layers.core import Dense, Dropout
-from keras.layers import GlobalAveragePooling2D, Input
-from keras.preprocessing.image import ImageDataGenerator
-from keras.applications import InceptionV3, ResNet50, VGG16, VGG19, Xception
-from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
-
-from keras_script import get_image_generator, get_combined_generator, get_cnn_model
-import keras_metrics as km
+from keras_script import (get_cnn_model, get_combined_generator,
+                          get_image_generator)
 
 
 def get_report(generator, num_images, num_classes, batch_size, model, split, net_name, net_id, figures_dir):

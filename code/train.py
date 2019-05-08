@@ -1,29 +1,28 @@
+import configparser
 import os
 import pathlib
 import random
-import numpy as np
-import pandas as pd
-import configparser
-
 from glob import glob
-import tensorflow as tf
-from keras import backend as K
-from keras.models import Model
-from keras.preprocessing import image as krs_image
-from keras.layers import GlobalAveragePooling2D, Input
-from keras.layers.merge import concatenate, add, multiply, average
 
 import imgaug as ia
-from imgaug import augmenters as iaa
-
-from keras.utils import multi_gpu_model
-from keras.preprocessing.image import ImageDataGenerator
-from keras.layers.core import Dense, Dropout
-from keras.optimizers import Adam, SGD, Adadelta
-from keras.applications import InceptionV3, VGG16, VGG19, Xception, ResNet50
-from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard, ReduceLROnPlateau
-from sklearn.utils import class_weight
 import keras_metrics as km
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from imgaug import augmenters as iaa
+from keras import backend as K
+from keras.applications import VGG16, VGG19, InceptionV3, ResNet50, Xception
+from keras.callbacks import (EarlyStopping, ModelCheckpoint, ReduceLROnPlateau,
+                             TensorBoard)
+from keras.layers import GlobalAveragePooling2D, Input
+from keras.layers.core import Dense, Dropout
+from keras.layers.merge import add, average, concatenate, multiply
+from keras.models import Model
+from keras.optimizers import SGD, Adadelta, Adam
+from keras.preprocessing import image as krs_image
+from keras.preprocessing.image import ImageDataGenerator
+from keras.utils import multi_gpu_model
+from sklearn.utils import class_weight
 
 
 def setup_dirs(models_dir, logs_dir, networks_list):
