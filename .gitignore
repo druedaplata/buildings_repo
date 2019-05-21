@@ -1,4 +1,6 @@
-data/
+__pycache__/
+data*/
 .vscode/
 *.jpg
-
+*.ipynb
+*.tar.gz
