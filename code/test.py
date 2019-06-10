@@ -26,6 +26,9 @@ from tqdm import tqdm
 from train import (get_cnn_model, get_combined_generator,
                    get_image_generator)
 
+# Random seed
+np.random.seed(73)
+
 
 def get_report(generator, num_images, num_classes, batch_size, model, split, net_name, net_id, figures_dir):
     # Get predictions from model
@@ -60,6 +63,10 @@ def get_report(generator, num_images, num_classes, batch_size, model, split, net
     f2_score_beta = fbeta_score(y_true, y_pred, beta=2, average='micro')
     #classes = list(aux_gen.class_indices.keys())
 
+    if num_classes == 6:
+        classes = ['CR_LINF_DNO', 'CR_LINF_DUC',
+                   'CR_LW_LD', 'MCF', 'MR', 'MUR']
+        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
     if num_classes == 7:
         classes = ['CR_LDUAL', 'CR_LINF_DNO',
                    'CR_LINF_DUC', 'CR_LWAL', 'MCF', 'MR', 'MUR']
@@ -85,10 +92,10 @@ def test_on_images(network, images_dir, models_dir, *args):
 
     # Get image generators
     num_images_val, num_classes_val, val_gen = get_image_generator(
-        images_dir, 'val', img_width, img_height, batch_size)
+        network, images_dir, 'val', img_width, img_height, batch_size)
 
     num_images_test, num_classes_test, test_gen = get_image_generator(
-        images_dir, 'test', img_width, img_height, batch_size)
+        network, images_dir, 'test', img_width, img_height, batch_size)
 
     # Make sure val/test have the same number of classes
     assert num_classes_val == num_classes_test
@@ -134,10 +141,10 @@ def test_combined(network, images_dir, csv_dir, csv_data, models_dir, *args):
     # Get image generators
 
     num_images_val, num_classes_val, features, val_gen = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size)
+        network, images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size)
 
     num_images_test, num_classes_test, features, test_gen = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'test', img_width, img_height, batch_size)
+        network, images_dir, csv_dir, csv_data, 'test', img_width, img_height, batch_size)
 
     # Make sure val/test have the same number of classes
     assert num_classes_val == num_classes_test
@@ -150,6 +157,7 @@ def test_combined(network, images_dir, csv_dir, csv_data, models_dir, *args):
 
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
+    #x = Dense(512, activation='relu')(x)
 
     # Load Simple MLP
     aux_input = Input(shape=(features, ))
@@ -214,7 +222,7 @@ if __name__ == '__main__':
     os.makedirs(f'{figures_dir}', exist_ok=True)
 
     for network in networks_list:
-
+        K.clear_session()
         args = [img_width, img_height, batch_size, models_dir, figures_dir]
 
         test_on_images(network, images_dir, models_dir, *args)
