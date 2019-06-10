@@ -12,9 +12,15 @@ import tensorflow as tf
 from imgaug import augmenters as iaa
 from keras import backend as K
 from keras.applications import VGG16, VGG19, InceptionV3, ResNet50, Xception
+from keras.applications.vgg16 import preprocess_input as vgg16_preprocess
+from keras.applications.vgg19 import preprocess_input as vgg19_preprocess
+from keras.applications.inception_v3 import preprocess_input as inceptionV3_preprocess
+from keras.applications.resnet50 import preprocess_input as resnet50_preprocess
+from keras.applications.xception import preprocess_input as xception_preprocess
+
 from keras.callbacks import (EarlyStopping, ModelCheckpoint, ReduceLROnPlateau,
                              TensorBoard)
-from keras.layers import GlobalAveragePooling2D, Input
+from keras.layers import GlobalAveragePooling2D, Input, Conv2D, MaxPooling2D
 from keras.layers.core import Dense, Dropout
 from keras.layers.merge import add, average, concatenate, multiply
 from keras.models import Model
@@ -23,6 +29,9 @@ from keras.preprocessing import image as krs_image
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import multi_gpu_model
 from sklearn.utils import class_weight
+
+# Random seed
+np.random.seed(73)
 
 
 def setup_dirs(models_dir, logs_dir, networks_list):
@@ -65,7 +74,21 @@ preprocessing = iaa.Sequential(
 )
 
 
-def get_image_generator(images_dir, split, *args):
+def get_network_preprocessing(network):
+    if network == 'vgg16':
+        return vgg16_preprocess
+    if network == 'vgg19':
+        return vgg19_preprocess
+    if network == 'inceptionv3':
+        return inceptionV3_preprocess
+    if network == 'resnet50':
+        return resnet50_preprocess
+    if network == 'xception':
+        return xception_preprocess
+    return None
+
+
+def get_image_generator(network, images_dir, split, *args):
     """Creates a custom image generator and applies the preprocessing pipeline.
 
     Arguments:
@@ -89,7 +112,7 @@ def get_image_generator(images_dir, split, *args):
     def image_generator(images_list, batch_size):
         i = 0
         while True:
-            batch = {'images': [], 'labels': []}
+            batch = {'images_path': [], 'images': [], 'labels': []}
             for b in range(batch_size):
                 if i == len(images_list):
                     i = 0
@@ -104,12 +127,19 @@ def get_image_generator(images_dir, split, *args):
                 # Get label from path
                 label = classes[image_path.split('/')[-2]]
 
+                batch['images_path'].append(image_path)
                 batch['images'].append(image)
                 batch['labels'].append(label)
                 i += 1
 
+            if split != 'train':
+                with open(f'A_{network}_{split}.csv', 'a') as fd:
+                    for l in batch['images_path']:
+                        fd.write(f'\n{l}')
+
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
-            batch['images'] = datagen.standardize(batch['images'])
+            network_preprocessing = get_network_preprocessing(network)
+            batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['labels'] = np.eye(len(dirs))[batch['labels']]
@@ -121,7 +151,7 @@ def get_image_generator(images_dir, split, *args):
     return num_images, num_classes, generator
 
 
-def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
+def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args):
     """Creates a custom image and csv generator, and applies the preprocessing pipeline.
 
     Arguments:
@@ -149,7 +179,7 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     def my_generator(images_list, dataframe, batch_size):
         i = 0
         while True:
-            batch = {'images': [], 'csv': [], 'labels': []}
+            batch = {'images_path': [], 'images': [], 'csv': [], 'labels': []}
             for b in range(batch_size):
                 if i == len(images_list):
                     i = 0
@@ -173,8 +203,14 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
                 batch['labels'].append(label)
                 i += 1
 
+            if split != 'train':
+                with open(f'B_{network}_{split}.csv', 'a') as fd:
+                    for l in batch['images_path']:
+                        fd.write(f'\n{l}')
+
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
-            batch['images'] = datagen.standardize(batch['images'])
+            network_preprocessing = get_network_preprocessing(network)
+            batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['csv'] = np.array(batch['csv'])
@@ -189,6 +225,15 @@ def get_combined_generator(images_dir, csv_dir, csv_data, split, *args):
     features -= 1
 
     return num_images, num_classes, features, csv_generator
+
+
+def get_simple_cnn(input_shape, main_input):
+    image_input = Input(shape=input_shape)
+    x = Conv2D(64, (3, 3), padding='same')(image_input)
+    x = Conv2D(128, (3, 3), padding='same')(x)
+    x = Conv2D(128, (3, 3), padding='same')(x)
+    model = Model(inputs=image_input, outputs=x)
+    return model
 
 
 def get_cnn_model(network, input_shape, main_input, *args):
@@ -217,10 +262,13 @@ def get_cnn_model(network, input_shape, main_input, *args):
         'vgg16': VGG16(**args),
         'vgg19': VGG19(**args),
         'xception': Xception(**args),
-        'resnet50': ResNet50(**args)
+        'resnet50': ResNet50(**args),
+        'simple': get_simple_cnn(input_shape, main_input)
     }
 
     base_model = models[network]
+    if network == 'simple':
+        return base_model, -1
     if network == 'inceptionV3':
         return base_model, 249
     else:
@@ -275,16 +323,16 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     # Use a Dense layer after GAP to make sure shape is the same on merge, no matter which network is running.
-    x = Dense(512, activation='relu')(x)
+    #x = Dense(512, activation='relu')(x)
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features, ))
     # 256, 128, 64
-    aux = Dense(512, activation='relu')(aux_input)
+    aux = Dense(256, activation='relu')(aux_input)
     aux = Dropout(0.3)(aux)
-    aux = Dense(512, activation='relu')(aux)
+    aux = Dense(128, activation='relu')(aux)
     aux = Dropout(0.3)(aux)
-    aux = Dense(512, activation='relu')(aux)
+    aux = Dense(64, activation='relu')(aux)
 
     # Merge both inputs
     if merge_type == 'concat':
@@ -297,7 +345,7 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
         merge = average([x, aux])
     predictions = Dense(num_classes, activation='softmax')(merge)
 
-    return Model(inputs=[image_input, aux_input], output=predictions), last_layer_number
+    return Model(inputs=[base_model.input, aux_input], output=predictions), last_layer_number
 
 
 def get_callback_list(network, path, models_dir, logs_dir):
@@ -343,10 +391,10 @@ def train_on_images(network, images_dir, *args):
 
     # Get image generators
     num_images_train, num_classes_train, train_gen = get_image_generator(
-        images_dir, 'train', img_width, img_height, batch_size)
+        network, images_dir, 'train', img_width, img_height, batch_size)
 
     num_images_val, num_classes_val, val_gen = get_image_generator(
-        images_dir, 'val', img_width, img_height, batch_size)
+        network, images_dir, 'val', img_width, img_height, batch_size)
 
     assert num_classes_train == num_classes_val
 
@@ -355,7 +403,8 @@ def train_on_images(network, images_dir, *args):
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 50, 7: 1}
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
-
+    if num_classes_train == 6:
+        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
     # Get image model
     model, last_layer_number = get_image_model(
         network, num_classes_train, img_width, img_height)
@@ -399,10 +448,11 @@ def train_on_images(network, images_dir, *args):
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
 
     # After training for a few epochs, freeze the bottom layers, and train only the last ones.
-    for layer in model.layers[:last_layer_number]:
-        layer.trainable = False
-    for layer in model.layers[last_layer_number:]:
-        layer.trainable = True
+    if last_layer_number > 0:
+        for layer in model.layers[:last_layer_number]:
+            layer.trainable = False
+        for layer in model.layers[last_layer_number:]:
+            layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
     model.compile(
@@ -443,10 +493,10 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
 
     # Get combined and image generators, and number of features in csv files.
     num_images_train, num_classes_train, features, multi_train_gen = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'train', img_width, img_height, batch_size)
+        network, images_dir, csv_dir, csv_data, 'train', img_width, img_height, batch_size)
 
     num_images_val, num_classes_val, features, multi_val_gen = get_combined_generator(
-        images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size
+        network, images_dir, csv_dir, csv_data, 'val', img_width, img_height, batch_size
     )
 
     assert num_classes_train == num_classes_val
@@ -456,6 +506,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 50, 7: 1}
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
+    if num_classes_train == 6:
+        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
 
     # Create model object in keras for both types of inputs
     model, last_layer_number = get_csv_plus_image_model(
@@ -500,10 +552,11 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
     model.load_weights(f'{models_dir}/{network}/{top_weights_path}.h5')
 
     # After training for a few epochs, freeze the bottom layers, and train only the last ones.
-    for layer in model.layers[:last_layer_number]:
-        layer.trainable = False
-    for layer in model.layers[last_layer_number:]:
-        layer.trainable = True
+    if last_layer_number > 0:
+        for layer in model.layers[:last_layer_number]:
+            layer.trainable = False
+        for layer in model.layers[last_layer_number:]:
+            layer.trainable = True
 
     # Compile model with frozen layers, and set learning rate
     model.compile(
@@ -557,8 +610,8 @@ if __name__ == '__main__':
             img_width, img_height, batch_size, lr_rate, epochs, models_dir,
             logs_dir, gpu_number
         ]
-
+        K.clear_session()
         train_on_images(network, images_dir, *args)
-        for merge_type in ['add', 'avg', 'mul', 'concat']:
+        for merge_type in ['concat']:
             train_combined(network, images_dir, csv_dir,
                            csv_data, merge_type, *args)
