@@ -139,7 +139,8 @@ def get_image_generator(network, images_dir, split, *args):
 
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
             network_preprocessing = get_network_preprocessing(network)
-            batch['images'] = network_preprocessing(batch['images'])
+            if network_preprocessing:
+                batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['labels'] = np.eye(len(dirs))[batch['labels']]
@@ -210,7 +211,8 @@ def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args)
 
             batch['images'] = np.array(batch['images'], dtype=np.uint8)
             network_preprocessing = get_network_preprocessing(network)
-            batch['images'] = network_preprocessing(batch['images'])
+            if network_preprocessing:
+                batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['csv'] = np.array(batch['csv'])
@@ -228,16 +230,15 @@ def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args)
 
 
 def get_simple_cnn(input_shape, main_input):
-    image_input = Input(shape=input_shape)
-    x = Conv2D(64, kernel_size=4, activation='relu')(main_input)
+    main_input = Input(shape=input_shape)
+    x = Conv2D(128, kernel_size=4, activation='relu')(main_input)
     x = MaxPooling2D(pool_size=(2, 2))(x)
-    x = Conv2D(32, kernel_size=4, activation='relu')(x)
+    x = Conv2D(128, kernel_size=4, activation='relu')(x)
     x = MaxPooling2D(pool_size=(2, 2))(x)
-    x = Conv2D(32, kernel_size=4, activation='relu')(x)
+    x = Conv2D(64, kernel_size=4, activation='relu')(x)
     x = MaxPooling2D(pool_size=(2, 2))(x)
-    x = GlobalAveragePooling2D()(x)
     x = Dense(8, activation='softmax')(x)
-    model = Model(inputs=image_input, outputs=x)
+    model = Model(inputs=main_input, outputs=x)
     return model
 
 
@@ -412,7 +413,7 @@ def train_on_images(network, images_dir, *args):
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
     if num_classes_train == 6:
-        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
+        class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 1}
     # Get image model
     model, last_layer_number = get_image_model(
         network, num_classes_train, img_width, img_height)
@@ -515,7 +516,7 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
     if num_classes_train == 7:
         class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 50, 6: 1}
     if num_classes_train == 6:
-        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
+        class_weights = {0: 50, 1: 1, 2: 1, 3: 50, 4: 50, 5: 1}
 
     # Create model object in keras for both types of inputs
     model, last_layer_number = get_csv_plus_image_model(
