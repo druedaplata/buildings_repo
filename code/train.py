@@ -79,7 +79,7 @@ def get_network_preprocessing(network):
         return vgg16_preprocess
     if network == 'vgg19':
         return vgg19_preprocess
-    if network == 'inceptionv3':
+    if network == 'inceptionV3':
         return inceptionV3_preprocess
     if network == 'resnet50':
         return resnet50_preprocess
@@ -229,9 +229,14 @@ def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args)
 
 def get_simple_cnn(input_shape, main_input):
     image_input = Input(shape=input_shape)
-    x = Conv2D(64, (3, 3), padding='same')(image_input)
-    x = Conv2D(128, (3, 3), padding='same')(x)
-    x = Conv2D(128, (3, 3), padding='same')(x)
+    x = Conv2D(64, kernel_size=4, activation='relu')(main_input)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
+    x = Conv2D(32, kernel_size=4, activation='relu')(x)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
+    x = Conv2D(32, kernel_size=4, activation='relu')(x)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(8, activation='softmax')(x)
     model = Model(inputs=image_input, outputs=x)
     return model
 
@@ -323,16 +328,16 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     # Use a Dense layer after GAP to make sure shape is the same on merge, no matter which network is running.
-    #x = Dense(512, activation='relu')(x)
+    #x = Dense(16, activation='relu')(x)
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features, ))
     # 256, 128, 64
-    aux = Dense(256, activation='relu')(aux_input)
+    aux = Dense(32, activation='relu')(aux_input)
     aux = Dropout(0.3)(aux)
-    aux = Dense(128, activation='relu')(aux)
+    aux = Dense(32, activation='relu')(aux)
     aux = Dropout(0.3)(aux)
-    aux = Dense(64, activation='relu')(aux)
+    aux = Dense(32, activation='relu')(aux)
 
     # Merge both inputs
     if merge_type == 'concat':
@@ -343,6 +348,9 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
         merge = multiply([x, aux])
     elif merge_type == 'avg':
         merge = average([x, aux])
+
+    merge = Dense(16, activation='relu')(merge)
+    merge = Dense(16, activation='relu')(merge)
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     return Model(inputs=[base_model.input, aux_input], output=predictions), last_layer_number
