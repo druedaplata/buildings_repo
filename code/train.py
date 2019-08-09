@@ -11,13 +11,14 @@ import pandas as pd
 import tensorflow as tf
 from imgaug import augmenters as iaa
 from keras import backend as K
-from keras.applications import VGG16, VGG19, InceptionV3, ResNet50, Xception
+from keras.applications import VGG16, VGG19, InceptionV3, ResNet50, Xception, MobileNetV2
+
 from keras.applications.vgg16 import preprocess_input as vgg16_preprocess
 from keras.applications.vgg19 import preprocess_input as vgg19_preprocess
 from keras.applications.inception_v3 import preprocess_input as inceptionV3_preprocess
 from keras.applications.resnet50 import preprocess_input as resnet50_preprocess
 from keras.applications.xception import preprocess_input as xception_preprocess
-
+from keras.applications.mobilenet_v2 import preprocess_input as mobile_preprocess
 from keras.callbacks import (EarlyStopping, ModelCheckpoint, ReduceLROnPlateau,
                              TensorBoard)
 from keras.layers import GlobalAveragePooling2D, Input, Conv2D, MaxPooling2D
@@ -85,6 +86,8 @@ def get_network_preprocessing(network):
         return resnet50_preprocess
     if network == 'xception':
         return xception_preprocess
+    if network == 'mobile':
+        return mobile_preprocess
     return None
 
 
@@ -137,7 +140,7 @@ def get_image_generator(network, images_dir, split, *args):
                     for l in batch['images_path']:
                         fd.write(f'\n{l}')
 
-            batch['images'] = np.array(batch['images'], dtype=np.uint8)
+            batch['images'] = np.array(batch['images'], dtype=np.float)
             network_preprocessing = get_network_preprocessing(network)
             if network_preprocessing:
                 batch['images'] = network_preprocessing(batch['images'])
@@ -209,7 +212,7 @@ def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args)
                     for l in batch['images_path']:
                         fd.write(f'\n{l}')
 
-            batch['images'] = np.array(batch['images'], dtype=np.uint8)
+            batch['images'] = np.array(batch['images'], dtype=np.float)
             network_preprocessing = get_network_preprocessing(network)
             if network_preprocessing:
                 batch['images'] = network_preprocessing(batch['images'])
@@ -269,6 +272,7 @@ def get_cnn_model(network, input_shape, main_input, *args):
         'vgg19': VGG19(**args),
         'xception': Xception(**args),
         'resnet50': ResNet50(**args),
+        'mobile': MobileNetV2(**args),
         'simple': get_simple_cnn(input_shape, main_input)
     }
 
