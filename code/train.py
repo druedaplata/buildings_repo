@@ -30,9 +30,14 @@ from keras.preprocessing import image as krs_image
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import multi_gpu_model
 from sklearn.utils import class_weight
+from skimage import exposure
 
-# Random seed
+
+# Numpy seed
 np.random.seed(73)
+# Tensorflow seed
+#from tensorflow import set_random_seed
+#set_random_seed(17)
 
 
 def setup_dirs(models_dir, logs_dir, networks_list):
@@ -59,10 +64,14 @@ preprocessing = iaa.Sequential(
         iaa.Fliplr(0.6),
         iaa.GaussianBlur(0.7),
         # Crop images by -5% and 10% of height/width
-        sometimes(iaa.Crop(percent=(0, 0.15))),
+        sometimes(iaa.Crop(percent=(0.1, 0.3))),
 
-        iaa.ChannelShuffle(0.5, [1, 0, 1]),
-
+        iaa.ChannelShuffle(0.5, [1, 1, 1]),
+        iaa.OneOf([
+            iaa.GammaContrast(gamma=(0.5, 1.75), per_channel=True),
+            iaa.LogContrast(gain=(0.5, 1.0), per_channel=True),
+            iaa.LinearContrast(alpha=(0.3, 1.75), per_channel=True)
+        ]),
         iaa.SomeOf((1, 3),
                    [
             iaa.Affine(rotate=(-15, 15)),
@@ -126,6 +135,7 @@ def get_image_generator(network, images_dir, split, *args):
                 image = krs_image.load_img(
                     image_path, target_size=(img_height, img_width))
                 image = krs_image.img_to_array(image)
+                image = exposure.rescale_intensity(image, in_range=(0, 255))
 
                 # Get label from path
                 label = classes[image_path.split('/')[-2]]
@@ -141,9 +151,9 @@ def get_image_generator(network, images_dir, split, *args):
                         fd.write(f'\n{l}')
 
             batch['images'] = np.array(batch['images'], dtype=np.float)
-            network_preprocessing = get_network_preprocessing(network)
-            if network_preprocessing:
-                batch['images'] = network_preprocessing(batch['images'])
+            #network_preprocessing = get_network_preprocessing(network)
+            #if network_preprocessing:
+            #    batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['labels'] = np.eye(len(dirs))[batch['labels']]
@@ -207,15 +217,15 @@ def get_combined_generator(network, images_dir, csv_dir, csv_data, split, *args)
                 batch['labels'].append(label)
                 i += 1
 
-            if split != 'train':
-                with open(f'B_{network}_{split}.csv', 'a') as fd:
-                    for l in batch['images_path']:
-                        fd.write(f'\n{l}')
+            #if split != 'train':
+            #    with open(f'B_{network}_{split}.csv', 'a') as fd:
+            #        for l in batch['images_path']:
+            #            fd.write(f'\n{l}')
 
             batch['images'] = np.array(batch['images'], dtype=np.float)
-            network_preprocessing = get_network_preprocessing(network)
-            if network_preprocessing:
-                batch['images'] = network_preprocessing(batch['images'])
+            #network_preprocessing = get_network_preprocessing(network)
+            #if network_preprocessing:
+            #    batch['images'] = network_preprocessing(batch['images'])
             batch['images'] = preprocessing.augment_images(batch['images'])
 
             batch['csv'] = np.array(batch['csv'])
@@ -333,16 +343,16 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     # Use a Dense layer after GAP to make sure shape is the same on merge, no matter which network is running.
-    #x = Dense(16, activation='relu')(x)
+    x = Dense(256, activation='relu')(x)
 
     # Create MLP using features from csv files
     aux_input = Input(shape=(features, ))
     # 256, 128, 64
-    aux = Dense(32, activation='relu')(aux_input)
+    aux = Dense(256, activation='relu')(aux_input)
     aux = Dropout(0.3)(aux)
-    aux = Dense(32, activation='relu')(aux)
+    aux = Dense(128, activation='relu')(aux)
     aux = Dropout(0.3)(aux)
-    aux = Dense(32, activation='relu')(aux)
+    aux = Dense(64, activation='relu')(aux)
 
     # Merge both inputs
     if merge_type == 'concat':
@@ -354,8 +364,8 @@ def get_csv_plus_image_model(network, num_classes, features, img_width, img_heig
     elif merge_type == 'avg':
         merge = average([x, aux])
 
-    merge = Dense(16, activation='relu')(merge)
-    merge = Dense(16, activation='relu')(merge)
+    merge = Dense(64, activation='relu')(merge)
+    merge = Dense(64, activation='relu')(merge)
     predictions = Dense(num_classes, activation='softmax')(merge)
 
     return Model(inputs=[base_model.input, aux_input], output=predictions), last_layer_number
@@ -382,7 +392,7 @@ def get_callback_list(network, path, models_dir, logs_dir):
             verbose=1,
             save_best_only=True,
             mode='min'),
-        EarlyStopping(monitor='val_loss', patience=20, verbose=1),
+        EarlyStopping(monitor='val_loss', patience=80, verbose=1),
         #ReduceLROnPlateau(monitor='val_loss', patience=4, verbose=1),
         TensorBoard(log_dir=f'{logs_dir}/{network}/{path}')
     ]
@@ -435,7 +445,8 @@ def train_on_images(network, images_dir, *args):
         optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
-            km.categorical_f1_score()
+            km.categorical_precision(),
+            km.categorical_recall(),
         ])
 
     # Get list of training parameters in keras
@@ -473,7 +484,8 @@ def train_on_images(network, images_dir, *args):
         optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
-            km.categorical_f1_score()
+            km.categorical_precision(),
+            km.categorical_recall(),
         ])
 
     # Train the model on train split, for the second half epochs
@@ -488,7 +500,7 @@ def train_on_images(network, images_dir, *args):
         use_multiprocessing=True)
 
 
-def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
+def train_combined(network, images_dir, csv_dir, csv_data, merge_type, load_weights, *args):
     """
     Trains a network combining a convolutional network and a multilayer perceptron
     on images and csv data.
@@ -530,8 +542,13 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
     if gpu_number > 1:
         model = multi_gpu_model(model, gpus=gpu_number)
 
-    # Create path to save training models and logs
-    top_weights_path = f'B_{merge_type}_{network}'
+    if load_weights:
+        # Create path to save training models and logs
+        top_weights_path = f'C_{merge_type}_{network}'
+        model.load_weights(f'{models_dir}/{network}/A_{network}.h5', by_name=True, skip_mismatch=True)
+    else:
+        # Create path to save training models and logs
+        top_weights_path = f'B_{merge_type}_{network}'
 
     # Compile model and set learning rate
     model.compile(
@@ -539,7 +556,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
         optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
-            km.categorical_f1_score()
+            km.categorical_precision(),
+            km.categorical_recall(),
         ])
 
     # Get list of training parameters in keras
@@ -577,7 +595,8 @@ def train_combined(network, images_dir, csv_dir, csv_data, merge_type, *args):
         optimizer=Adadelta(lr=lr_rate),
         metrics=[
             'accuracy',
-            km.categorical_f1_score()
+            km.categorical_precision(),
+            km.categorical_recall(),
         ])
 
     # Train the model on train split, for the second half epochs
@@ -627,4 +646,6 @@ if __name__ == '__main__':
         train_on_images(network, images_dir, *args)
         for merge_type in ['concat']:
             train_combined(network, images_dir, csv_dir,
-                           csv_data, merge_type, *args)
+                           csv_data, merge_type, True, *args)
+            train_combined(network, images_dir, csv_dir,
+                           csv_data, merge_type, Falsee, *args)
