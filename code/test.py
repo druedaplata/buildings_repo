@@ -26,8 +26,6 @@ from tqdm import tqdm
 from train import (get_cnn_model, get_combined_generator,
                    get_image_generator)
 
-# Random seed
-np.random.seed(73)
 
 
 def get_report(generator, num_images, num_classes, batch_size, model, split, net_name, net_id, figures_dir):
@@ -48,28 +46,18 @@ def get_report(generator, num_images, num_classes, batch_size, model, split, net
             y_pred = np.vstack((y_pred, batch_pred))
             y_true = np.vstack((y_true, batch_true))
 
-    # y_pred = model.predict_generator(
-    #    generator, steps=num_images/batch_size, use_multiprocessing=False, verbose=1)
-
     y_pred = np.argmax(y_pred, axis=-1)
     y_true = np.argmax(y_true, axis=-1)
 
     output_csv = pd.DataFrame({
         'true': y_true,
         'pred': y_pred})
+
     output_csv.to_csv(
         f'{figures_dir}/{net_id}{net_name}_{split}.csv', index=False)
 
     f2_score_beta = fbeta_score(y_true, y_pred, beta=2, average='micro')
-    #classes = list(aux_gen.class_indices.keys())
 
-    if num_classes == 6:
-        classes = ['CR_LINF_DNO', 'CR_LINF_DUC',
-                   'CR_LW_LD', 'MCF', 'MR', 'MUR']
-        class_weights = {0: 1, 1: 1, 2: 50, 3: 50, 4: 50, 5: 1}
-    if num_classes == 7:
-        classes = ['CR_LDUAL', 'CR_LINF_DNO',
-                   'CR_LINF_DUC', 'CR_LWAL', 'MCF', 'MR', 'MUR']
     if num_classes == 8:
         classes = ['CR_LDUAL', 'CR_LINF_DNO', 'CR_LINF_DUC',
                    'CR_LWAL', 'MCF', 'MCF_DNO', 'MR', 'MUR']
@@ -157,19 +145,20 @@ def test_combined(network, images_dir, csv_dir, csv_data, models_dir, *args):
 
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    #x = Dense(512, activation='relu')(x)
+    x = Dense(512, activation='relu')(x)
 
     # Load Simple MLP
     aux_input = Input(shape=(features, ))
-    aux = Dense(256, activation='relu')(aux_input)
+    aux = Dense(512, activation='relu')(aux_input)
     aux = Dropout(0.3)(aux)
-    aux = Dense(128, activation='relu')(aux)
+    aux = Dense(512, activation='relu')(aux)
     aux = Dropout(0.3)(aux)
-    aux = Dense(64, activation='relu')(aux)
+    aux = Dense(512, activation='relu')(aux)
 
     # Merge input models
     merge = concatenate([x, aux])
     predictions = Dense(num_classes_val, activation='softmax')(merge)
+    
     model = Model(inputs=[main_input, aux_input], outputs=predictions)
 
     path = f'{models_dir}/{network}'
