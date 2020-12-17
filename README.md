@@ -36,18 +36,16 @@ An exposure model is a key component for assessing potential human and economic 
 
 
 ```tex
-@article{XX,
+@article{gonzalez2020automatic,
     author = {Gonzales, D. AND Rueda-Plata, D. AND Acevedo, A. B. AND Duque, J. C. AND Ramos-Pollán, R. AND Betancur, A. AND García, S.},
     journal = {Building and Environment},
     publisher = {Elsevier},
     title = {Automatic detection of building typology using deep learning methods on street level images},
     year = {2020},
-    month = {mm},
-    volume = {vv},
-    url = {xx},
-    pages = {},
-    abstract = {An exposure model is a key component for assessing potential human and economic losses from natural disasters. An exposure model consists of a spatially disaggregated description of the infrastructure and population of a region under study. Depending on the size of the settlement area, developing such models can be a costly and time-consuming task. In this paper we use a manually annotated dataset consisting of approximately 10,000 photos acquired at street level in the urban area of Medellín to explore the potential for using a convolutional neural network (CNN) to automatically detect building materials and types of lateral-load resisting systems, which are attributes that define a building’s structural typology (which is a key issue in exposure models for seismic risk assessment). The results of the developed model achieved a precision of 93% and a recall of 95% when identifying nonductile buildings, which are the buildings most likely to be damaged in an earthquake.  Identifying fine-grained material typology is more difficult, because many visual clues are physically hidden, but our model matches expert level performances, achieving a recall of 85% and accuracy scores ranging from 60% to 82% on the three most common building typologies, which account for 91% of the total building population in Medellín. Overall, this study shows that a CNN can make a substantial contribution to developing cost-effective exposure models.},
-    number = {nn},
-    doi = {xx}
+    month = {06},
+    volume = {177},
+    url = {https://www.sciencedirect.com/science/article/abs/pii/S0360132320301633},
+    pages = {106805},
+    doi = {https://doi.org/10.1016/j.buildenv.2020.106805}
 }
 ```
